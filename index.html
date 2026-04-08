@@ -863,19 +863,11 @@ let lastTemplateType = null;
 
 function fillTemplate(type) {
   lastTemplateType = type;
-  // הצג את סלקטור הכמות ואפס ל-1
-  document.getElementById('partsCountRow').style.display = 'flex';
-  document.getElementById('partsCount').value = '1';
-  document.getElementById('partsCountHint').textContent = 'חלק אחד נבחר';
-  applyPartsCount();
-}
-
-function applyPartsCount() {
   const templates = {
     bakash: `צ׳: 
-סוג הכלי: בק"ש
-מק״ט: 
 שם החלק: 
+מק״ט: 
+סוג הכלי: בק"ש
 כמות: 
 הערות: `,
     malaee: `שם החלק: 
@@ -884,9 +876,36 @@ function applyPartsCount() {
 כמות: 
 הערות: `,
     tankim: `צ׳: 
-סוג הכלי: מרכבה סימן 3
-מק״ט: 
 שם החלק: 
+מק״ט: 
+סוג הכלי: מרכבה סימן 3
+כמות: 
+הערות: `
+  };
+  document.getElementById('inputText').value = templates[type].trimEnd();
+  document.getElementById('partsCountRow').style.display = 'flex';
+  document.getElementById('partsCount').value = '1';
+  document.getElementById('partsCountHint').textContent = 'חלק אחד נבחר';
+  autoParsePreview();
+}
+
+function applyPartsCount() {
+  const templates = {
+    bakash: `צ׳: 
+שם החלק: 
+מק״ט: 
+סוג הכלי: בק"ש
+כמות: 
+הערות: `,
+    malaee: `שם החלק: 
+מק״ט: 
+סוג הכלי: 
+כמות: 
+הערות: `,
+    tankim: `צ׳: 
+שם החלק: 
+מק״ט: 
+סוג הכלי: מרכבה סימן 3
 כמות: 
 הערות: `
   };
@@ -896,26 +915,27 @@ function applyPartsCount() {
   if (!base) return;
 
   const count = parseInt(document.getElementById('partsCount').value) || 1;
-
-  // פצל את הטקסט הקיים לחלקים
   const textarea = document.getElementById('inputText');
   const existing = textarea.value.trim();
-  const currentParts = existing
-    ? existing.split(/\n\s*---[^\n]*---\s*\n|\n\n---[^\n]*---\n/).map(p => p.replace(/^---[^\n]*---\n/, '').trim()).filter(Boolean)
-    : [];
 
-  const currentCount = currentParts.length || 1;
+  // פצל נכון – חלק אחד ללא מפריד, כמה חלקים עם מפריד
+  let currentParts;
+  if (existing.includes('--- חלק')) {
+    currentParts = existing.split(/\n\n--- חלק \d+ ---\n/).map(p => p.replace(/^--- חלק \d+ ---\n/, '').trim()).filter(Boolean);
+  } else {
+    currentParts = existing ? [existing] : [base];
+  }
+
+  const currentCount = currentParts.length;
 
   let newParts;
   if (count > currentCount) {
-    // הוסף חלקים חדשים (ריקים) בסוף
     const toAdd = count - currentCount;
     newParts = [
       ...currentParts,
       ...Array.from({ length: toAdd }, () => base)
     ];
   } else {
-    // קצר – השאר רק את count הראשונים
     newParts = currentParts.slice(0, count);
   }
 
