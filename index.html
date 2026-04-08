@@ -656,15 +656,30 @@ function fuzzyMatchField(rawKey){
   return bestDist<=2?bestField:null;
 }
 
+function cleanLine(line){
+  // הסר markdown: *bold*, **bold**, _italic_
+  return line
+    .replace(/\*\*([^*]+)\*\*/g,'$1')  // **text**
+    .replace(/\*([^*]+)\*/g,'$1')        // *text*
+    .replace(/_([^_]+)_/g,'$1')          // _text_
+    .replace(/^\*+/,'')                  // * בתחילת שורה
+    .replace(/\*+$/,'')                  // * בסוף שורה
+    .trim();
+}
+
 function parseText(text){
   const result={};
-  for(const line of text.split('\n')){
+  for(let line of text.split('\n')){
+    line=cleanLine(line);
     const trimmed=line.trim();
     if(!trimmed||trimmed.startsWith('---'))continue;
     const colonIdx=trimmed.indexOf(':');
     if(colonIdx<1)continue;
-    const rawKey=trimmed.slice(0,colonIdx).trim();
+    // המפתח הוא כל מה שלפני הנקודותיים הראשונות, הערך כל מה שאחריהן
+    let rawKey=cleanLine(trimmed.slice(0,colonIdx)).trim();
     let val=trimmed.slice(colonIdx+1).trim();
+    // הסר * גם מהערך
+    val=val.replace(/^\*+/,'').replace(/\*+$/,'').trim();
     if(!val)continue;
     const field=fuzzyMatchField(rawKey);
     if(!field||result[field])continue;
@@ -1027,7 +1042,8 @@ async function agentSend(){
     sp+='הזמנה: '+O+' {"שםהחלק":"X","מקט":"X","סוגהכלי":"X","כמות":"X","צ\\u05f3":"אופציונלי"} '+E+'\n';
     sp+='עדכון שדה: '+U+' {"מקט":"X","שדה":"X","ערך":"X","גיליון":"X"} '+E+'\n';
     sp+='מחיקה: '+D+' {"מקט":"X","גיליון":"X"} '+E+'\n';
-    sp+='בקש = סוגהכלי: '+BKSH+', ללא שדה צ\'.';
+    sp+='בקש = סוגהכלי: '+BKSH+', ללא שדה צ\'.\n';
+    sp+='טקסט יכול להגיע עם * (בולד וואטסאפ) – התעלם מהם. כשיר/רענון חלפים = התעלם.';;
 
     var resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
