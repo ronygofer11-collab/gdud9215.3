@@ -358,8 +358,9 @@
     border-top: 1px solid #30363d;
     padding-top: 12px;
     margin-top: 4px;
+    align-items: flex-end;
   }
-  .agent-input-row input {
+  .agent-input-row textarea {
     flex: 1;
     background: #0d1117;
     border: 1px solid #30363d;
@@ -369,8 +370,13 @@
     padding: 8px 12px;
     direction: rtl;
     font-family: inherit;
+    resize: none;
+    min-height: 38px;
+    max-height: 100px;
+    overflow-y: auto;
+    line-height: 1.5;
   }
-  .agent-input-row input:focus { outline: none; border-color: #58a6ff; }
+  .agent-input-row textarea:focus { outline: none; border-color: #58a6ff; }
   .agent-send-btn {
     background: #58a6ff;
     border: none;
@@ -497,6 +503,9 @@
     <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/AKfy.../exec"
       value="" oninput="saveUrl()">
     <p class="hint">הכנס את ה-URL פעם אחת – הוא יישמר אוטומטית בדפדפן ולא תצטרך להדביק שוב.</p>
+    <label style="margin-top:14px;">Anthropic API Key (לסרג'יו בלבד)</label>
+    <input type="password" id="anthropicKey" placeholder="sk-ant-..." oninput="saveApiKey()" onblur="saveApiKey()">
+    <p class="hint">נשמר אוטומטית במכשיר. קבל מפתח ב-<a href="https://console.anthropic.com" target="_blank" style="color:#58a6ff;">console.anthropic.com</a></p>
   </div>
 </div>
 
@@ -516,7 +525,9 @@
     </div>
     <div class="agent-input-row">
       <button class="agent-send-btn" id="agentSendBtn" onclick="agentSend()">שלח</button>
-      <input type="text" id="agentInput" placeholder="שאל שאלה על הגיליון..." onkeydown="if(event.key==='Enter') agentSend()">
+      <textarea id="agentInput" placeholder="שאל שאלה על הגיליון..." rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();agentSend();}"
+        oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
     </div>
   </div>
 </div>
@@ -608,697 +619,491 @@
 <footer>גדוד 9215 · מערכת הזמנת חלפים · v1.0</footer>
 
 <script>
-// ============================================================
-// נרמול טקסט – מסיר גרשיים, רווחים כפולים, ממיר לאותיות קטנות
-// ============================================================
+// ── Normalize ──────────────────────────────────────────────
 function normalize(s) {
-  return String(s)
-    .replace(/[״"'"'`]/g, '')   // כל סוגי גרשיים
-    .replace(/\s+/g, ' ')        // רווחים כפולים
-    .trim()
-    .toLowerCase();
+  return String(s).replace(/[״"'"'`]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
 }
 
-// מחשב מרחק Levenshtein בין שתי מחרוזות
-function levenshtein(a, b) {
-  const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, (_, i) => [i]);
-  for (let j = 1; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++)
-    for (let j = 1; j <= n; j++)
-      dp[i][j] = a[i-1] === b[j-1]
-        ? dp[i-1][j-1]
-        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+function levenshtein(a,b){
+  const m=a.length,n=b.length;
+  const dp=Array.from({length:m+1},(_,i)=>[i]);
+  for(let j=1;j<=n;j++)dp[0][j]=j;
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)
+    dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
   return dp[m][n];
 }
 
-// כל המילות המפתח האפשריות לכל שדה, כולל וריאנטים עם שגיאות
-const FIELD_ALIASES = {
-  'חטיבה':    ['חטיבה', 'חטיבה:', 'חטבה', 'חטיבה '],
-  'גדוד':     ['גדוד', 'גדוד:', 'גדד', 'גדוד '],
-  'צ׳':        ['צ', 'צי', "צ'", 'צ׳', 'מספר רכב', 'מס רכב', 'מסרכב'],
-  'סוגהכלי':  ['סוג הכלי', 'סוג כלי', 'סוגכלי', 'סוג הכלי:', 'סוג', 'כלי', 'סוגהכלי', 'סוג כלה', 'סוג הכל'],
-  'מקט':      ['מקט', 'מקט:', 'מק"ט', 'מק״ט', "מק'ט", 'מקיט', 'מקט '],
-  'שםהחלק':   ['שם החלק', 'שם חלק', 'שמהחלק', 'שם:', 'חלק', 'שם החלק:', 'שם חלק:', 'שם הלחק', 'שםחלק'],
-  'כמות':     ['כמות', 'כמות:', 'כמות ', 'כמות:', 'כמות '],
-  'הערות':    ['הערות', 'הערה', 'הערות:', 'הערה:', 'הערה ', 'הערות '],
+const FIELD_ALIASES={
+  'חטיבה':   ['חטיבה','חטבה'],
+  'גדוד':    ['גדוד','גדד'],
+  'צ׳':      ['צ',"צ'",'צ׳','מספר רכב','מסרכב'],
+  'סוגהכלי': ['סוג הכלי','סוג כלי','סוגכלי','סוג','סוג הכל','סוג כלה'],
+  'מקט':     ['מקט','מקיט'],
+  'שםהחלק':  ['שם החלק','שם חלק','שם הלחק','שםחלק','חלק'],
+  'כמות':    ['כמות'],
+  'הערות':   ['הערות','הערה'],
 };
 
-// סף מרחק – כמה אותיות שגויות מותרות (תלוי אורך המילה)
-function maxDist(word) {
-  if (word.length <= 3) return 0;
-  if (word.length <= 5) return 1;
-  return 2;
-}
+function maxDist(w){return w.length<=3?0:w.length<=5?1:2;}
 
-function fuzzyMatchField(rawKey) {
-  const nk = normalize(rawKey);
-  let bestField = null, bestDist = 99;
-
-  for (const [field, aliases] of Object.entries(FIELD_ALIASES)) {
-    for (const alias of aliases) {
-      const na = normalize(alias);
-      // התאמה מדויקת
-      if (nk === na || nk.startsWith(na) || na.startsWith(nk)) {
-        return field;
-      }
-      // fuzzy
-      const dist = levenshtein(nk, na);
-      const allowed = maxDist(na);
-      if (dist <= allowed && dist < bestDist) {
-        bestDist = dist;
-        bestField = field;
-      }
+function fuzzyMatchField(rawKey){
+  const nk=normalize(rawKey);
+  let bestField=null,bestDist=99;
+  for(const [field,aliases] of Object.entries(FIELD_ALIASES)){
+    for(const alias of aliases){
+      const na=normalize(alias);
+      if(nk===na||nk.startsWith(na)||na.startsWith(nk))return field;
+      const dist=levenshtein(nk,na);
+      if(dist<=maxDist(na)&&dist<bestDist){bestDist=dist;bestField=field;}
     }
   }
-  return bestDist <= 2 ? bestField : null;
+  return bestDist<=2?bestField:null;
 }
 
-function parseText(text) {
-  const result = {};
-  const lines = text.split('\n');
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('---')) continue;
-
-    // חפש נקודותיים – מפריד בין מפתח לערך
-    const colonIdx = trimmed.indexOf(':');
-    if (colonIdx < 1) continue;
-
-    const rawKey = trimmed.slice(0, colonIdx).trim();
-    let val = trimmed.slice(colonIdx + 1).trim();
-    if (!val) continue;
-
-    const field = fuzzyMatchField(rawKey);
-    if (!field || result[field]) continue;
-
-    // כמות – רק ספרות
-    if (field === 'כמות') {
-      val = val.replace(/\D/g, '') || null;
-    }
-
-    if (val) result[field] = val;
+function parseText(text){
+  const result={};
+  for(const line of text.split('\n')){
+    const trimmed=line.trim();
+    if(!trimmed||trimmed.startsWith('---'))continue;
+    const ci=trimmed.indexOf(':');
+    if(ci<1)continue;
+    const rawKey=trimmed.slice(0,ci).trim();
+    let val=trimmed.slice(ci+1).trim();
+    if(!val)continue;
+    const field=fuzzyMatchField(rawKey);
+    if(!field||result[field])continue;
+    if(field==='כמות')val=val.replace(/\D/g,'')||null;
+    if(val)result[field]=val;
   }
   return result;
 }
 
-let omedValue = null;
+// ── State ───────────────────────────────────────────────────
+let omedValue=null;
 
-// טען URL שמור מהדפדפן
-window.addEventListener('DOMContentLoaded', () => {
-  const saved = localStorage.getItem('scriptUrl_9215');
-  if (saved) {
-    document.getElementById('scriptUrl').value = saved;
-    collapseSettings();
-  }
+// ── Init ────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded',()=>{
+  const url=localStorage.getItem('scriptUrl_9215');
+  const key=localStorage.getItem('anthropic_key_9215');
+  if(url){document.getElementById('scriptUrl').value=url;}
+  if(key){document.getElementById('anthropicKey').value=key;}
+  if(url)collapseSettings();
   updateQueueBanner();
 });
 
-function collapseSettings() {
+// ── Settings ────────────────────────────────────────────────
+function collapseSettings(){
   document.getElementById('settingsBody').classList.add('hidden');
-  document.getElementById('settingsToggleBtn').textContent = 'ערוך ▼';
-  document.getElementById('urlSetIndicator').style.display = 'block';
+  document.getElementById('settingsToggleBtn').textContent='ערוך ▼';
+  document.getElementById('urlSetIndicator').style.display='block';
 }
-
-function toggleSettings() {
-  const body = document.getElementById('settingsBody');
-  const btn  = document.getElementById('settingsToggleBtn');
-  const indicator = document.getElementById('urlSetIndicator');
-  if (body.classList.contains('hidden')) {
-    body.classList.remove('hidden');
-    btn.textContent = 'הסתר ▲';
-    indicator.style.display = 'none';
+function toggleSettings(){
+  const body=document.getElementById('settingsBody');
+  const btn=document.getElementById('settingsToggleBtn');
+  const ind=document.getElementById('urlSetIndicator');
+  if(body.classList.contains('hidden')){
+    body.classList.remove('hidden');btn.textContent='הסתר ▲';ind.style.display='none';
   } else {
-    const val = document.getElementById('scriptUrl').value.trim();
-    if (!val) return; // לא מסתיר אם אין URL
+    if(!document.getElementById('scriptUrl').value.trim())return;
     collapseSettings();
   }
 }
-
-function saveUrl() {
-  const val = document.getElementById('scriptUrl').value.trim();
-  if (val) {
-    localStorage.setItem('scriptUrl_9215', val);
-    // הסתר אוטומטית אחרי הקלדה
-    collapseSettings();
-  }
+function saveUrl(){
+  const v=document.getElementById('scriptUrl').value.trim();
+  if(v){localStorage.setItem('scriptUrl_9215',v);collapseSettings();}
+}
+function saveApiKey(){
+  const v=document.getElementById('anthropicKey').value.trim();
+  if(v)localStorage.setItem('anthropic_key_9215',v);
 }
 
-function selectOmed(val) {
-  omedValue = val;
-  document.getElementById('opt-yes').className = 'toggle-opt' + (val === 'כן' ? ' selected-yes' : '');
-  document.getElementById('opt-no').className  = 'toggle-opt' + (val === 'לא' ? ' selected-no'  : '');
-  document.getElementById('omedError').style.display = 'none';
+// ── Omed toggle ─────────────────────────────────────────────
+function selectOmed(val){
+  omedValue=val;
+  document.getElementById('opt-yes').className='toggle-opt'+(val==='כן'?' selected-yes':'');
+  document.getElementById('opt-no').className='toggle-opt'+(val==='לא'?' selected-no':'');
+  document.getElementById('omedError').style.display='none';
 }
 
-function parseText(text) {
-  const result = {};
-  const lines = text.split('\n');
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    for (const field of FIELD_KEYS) {
-      if (result[field.key]) continue;
-      for (const pat of field.patterns) {
-        const re = new RegExp(`^${pat}\\s*:?\\s*(.+)`, 'i');
-        const m = trimmed.match(re);
-        if (m) {
-          let val = m[1].trim();
-          // כמות – רק ספרות
-          if (field.key === 'כמות') {
-            const digits = val.replace(/\D/g, '');
-            val = digits || null;
-          }
-          if (val) result[field.key] = val;
-          break;
-        }
-      }
-    }
-  }
-  return result;
-}
-
-function detectSheet(parsed) {
-  const tool = (parsed['סוגהכלי'] || '').trim();
-  // בק"ש – זיהוי מדויק יותר
-  if (/בק[״"']?ש/.test(tool) || tool === 'בקש') {
-    return { name: 'בק"ש', badge: 'badge-orange', label: '📄 יכנס לגיליון: בק״ש' };
-  }
-  if (/סימן\s*3/.test(tool) || /מרכבה.*3/.test(tool)) {
-    return { name: 'סימן 3', badge: 'badge-blue', label: '🔵 יכנס לגיליון: סימן 3' };
-  }
-  if (tool) {
-    return { name: 'כלים אחרים', badge: 'badge-green', label: '🟢 יכנס לגיליון: כלים אחרים' };
-  }
+// ── Sheet detection ─────────────────────────────────────────
+function detectSheet(parsed){
+  const tool=(parsed['סוגהכלי']||'').trim();
+  if(/בק[״"']?ש/.test(tool)||tool==='בקש')return{name:'בק"ש',badge:'badge-orange',label:'📄 יכנס לגיליון: בק״ש'};
+  if(/סימן\s*3/.test(tool)||/מרכבה.*3/.test(tool))return{name:'סימן 3',badge:'badge-blue',label:'🔵 יכנס לגיליון: סימן 3'};
+  if(tool)return{name:'כלים אחרים',badge:'badge-green',label:'🟢 יכנס לגיליון: כלים אחרים'};
   return null;
 }
 
-function autoParsePreview() {
-  const text = document.getElementById('inputText').value;
-  const preview = document.getElementById('parsedPreview');
-  const fieldsDiv = document.getElementById('parsedFields');
-
-  if (!text.trim()) { preview.style.display = 'none'; return; }
-
-  // פצל לחלקים
-  const rawParts = text.split(/\n---[^\n]*---\n/).map(p => p.replace(/^---[^\n]*---\n/, '').trim()).filter(Boolean);
-  if (!rawParts.length) { preview.style.display = 'none'; return; }
-
-  const labels = {
-    'חטיבה': 'חטיבה', 'גדוד': 'גדוד', "צ׳": "צ׳",
-    'סוגהכלי': 'סוג הכלי', 'מקט': 'מק״ט',
-    'שםהחלק': 'שם החלק', 'כמות': 'כמות', 'הערות': 'הערות'
-  };
-
-  const ALWAYS_SHOW = 2; // כמה חלקים תמיד פתוחים
-
-  let html = '';
-  rawParts.forEach((partText, i) => {
-    const parsed = parseText(partText);
-    const sheet  = detectSheet(parsed);
-    const partNum = rawParts.length > 1 ? `חלק ${i + 1}` : 'פרטים';
-    const sheetBadge = sheet
-      ? `<span class="badge ${sheet.badge}" style="font-size:0.7rem;padding:1px 7px;">${sheet.name}</span>`
-      : '';
-    const isCollapsed = i >= ALWAYS_SHOW;
-    const bodyClass = isCollapsed ? 'part-block-body collapsed' : 'part-block-body';
-    const toggleText = isCollapsed ? '▼ הצג' : '▲ הסתר';
-
-    const rows = Object.entries(parsed).map(([k, v]) =>
-      `<div class="parsed-row"><span class="parsed-key">${labels[k] || k}</span><span class="parsed-val">${v}</span></div>`
-    ).join('');
-
-    html += `
-      <div class="part-block">
-        <div class="part-block-header" onclick="togglePartBlock(this)">
-          <span class="part-title">${partNum} ${sheetBadge}</span>
-          <span class="part-toggle">${toggleText}</span>
-        </div>
-        <div class="${bodyClass}">
-          ${rows || '<div style="color:#6e7681;font-size:0.82rem;">אין שדות מזוהים</div>'}
-          ${sheet ? `<div class="sheet-target" style="margin-top:8px;padding:6px;background:#161b22;border:1px solid #30363d;border-radius:6px;font-size:0.82rem;font-weight:600;color:#e6edf3;">${sheetBadge} ${sheet.label}</div>` : ''}
-        </div>
-      </div>`;
+// ── Preview ─────────────────────────────────────────────────
+function autoParsePreview(){
+  const text=document.getElementById('inputText').value;
+  const preview=document.getElementById('parsedPreview');
+  const fieldsDiv=document.getElementById('parsedFields');
+  if(!text.trim()){preview.style.display='none';return;}
+  const rawParts=text.split(/\n---[^\n]*---\n/).map(p=>p.replace(/^---[^\n]*---\n/,'').trim()).filter(Boolean);
+  if(!rawParts.length){preview.style.display='none';return;}
+  const labels={'חטיבה':'חטיבה','גדוד':'גדוד',"צ׳":"צ׳",'סוגהכלי':'סוג הכלי','מקט':'מק״ט','שםהחלק':'שם החלק','כמות':'כמות','הערות':'הערות'};
+  const ALWAYS_SHOW=2;
+  let html='';
+  rawParts.forEach((partText,i)=>{
+    const parsed=parseText(partText);
+    const sheet=detectSheet(parsed);
+    const partNum=rawParts.length>1?'חלק '+(i+1):'פרטים';
+    const sheetBadge=sheet?'<span class="badge '+sheet.badge+'" style="font-size:0.7rem;padding:1px 7px;">'+sheet.name+'</span>':'';
+    const isCollapsed=i>=ALWAYS_SHOW;
+    const rows=Object.entries(parsed).map(([k,v])=>'<div class="parsed-row"><span class="parsed-key">'+(labels[k]||k)+'</span><span class="parsed-val">'+v+'</span></div>').join('');
+    html+='<div class="part-block"><div class="part-block-header" onclick="togglePartBlock(this)"><span class="part-title">'+partNum+' '+sheetBadge+'</span><span class="part-toggle">'+(isCollapsed?'▼ הצג':'▲ הסתר')+'</span></div><div class="part-block-body'+(isCollapsed?' collapsed':'')+'">'+( rows||'<div style="color:#6e7681;font-size:0.82rem;">אין שדות מזוהים</div>')+(sheet?'<div class="sheet-target" style="margin-top:8px;padding:6px;background:#161b22;border:1px solid #30363d;border-radius:6px;font-size:0.82rem;font-weight:600;color:#e6edf3;">'+sheetBadge+' '+sheet.label+'</div>':'')+'</div></div>';
   });
-
-  // כפתור הרחב/כווץ הכל אם יש יותר מ-ALWAYS_SHOW
-  if (rawParts.length > ALWAYS_SHOW) {
-    const hidden = rawParts.length - ALWAYS_SHOW;
-    html += `<button class="preview-expand-btn" id="expandAllBtn" onclick="toggleAllParts(this)">▼ הצג עוד ${hidden} חלק${hidden > 1 ? 'ים' : ''}</button>`;
-  }
-
-  fieldsDiv.innerHTML = html;
-  preview.style.display = 'block';
+  if(rawParts.length>ALWAYS_SHOW){const h=rawParts.length-ALWAYS_SHOW;html+='<button class="preview-expand-btn" id="expandAllBtn" onclick="toggleAllParts(this)">▼ הצג עוד '+h+' חלק'+(h>1?'ים':'')+'</button>';}
+  fieldsDiv.innerHTML=html;
+  preview.style.display='block';
 }
 
-function togglePartBlock(header) {
-  const body = header.nextElementSibling;
-  const toggle = header.querySelector('.part-toggle');
-  const collapsed = body.classList.toggle('collapsed');
-  toggle.textContent = collapsed ? '▼ הצג' : '▲ הסתר';
+function togglePartBlock(header){
+  const body=header.nextElementSibling;
+  const toggle=header.querySelector('.part-toggle');
+  const collapsed=body.classList.toggle('collapsed');
+  toggle.textContent=collapsed?'▼ הצג':'▲ הסתר';
   updateExpandBtn();
 }
-
-function toggleAllParts(btn) {
-  const preview = document.getElementById('parsedFields');
-  const bodies = preview.querySelectorAll('.part-block-body');
-  const anyCollapsed = [...bodies].some(b => b.classList.contains('collapsed'));
-  bodies.forEach(b => {
-    b.classList.toggle('collapsed', !anyCollapsed);
-    const toggle = b.previousElementSibling.querySelector('.part-toggle');
-    if (toggle) toggle.textContent = anyCollapsed ? '▲ הסתר' : '▼ הצג';
-  });
+function toggleAllParts(btn){
+  const preview=document.getElementById('parsedFields');
+  const bodies=preview.querySelectorAll('.part-block-body');
+  const anyCollapsed=[...bodies].some(b=>b.classList.contains('collapsed'));
+  bodies.forEach(b=>{b.classList.toggle('collapsed',!anyCollapsed);const t=b.previousElementSibling.querySelector('.part-toggle');if(t)t.textContent=anyCollapsed?'▲ הסתר':'▼ הצג';});
   updateExpandBtn();
 }
-
-function updateExpandBtn() {
-  const btn = document.getElementById('expandAllBtn');
-  if (!btn) return;
-  const preview = document.getElementById('parsedFields');
-  const bodies = preview.querySelectorAll('.part-block-body');
-  const anyCollapsed = [...bodies].some(b => b.classList.contains('collapsed'));
-  const hidden = [...bodies].filter(b => b.classList.contains('collapsed')).length;
-  btn.textContent = anyCollapsed
-    ? `▼ הצג עוד ${hidden} חלק${hidden > 1 ? 'ים' : ''}`
-    : '▲ כווץ הכל';
+function updateExpandBtn(){
+  const btn=document.getElementById('expandAllBtn');
+  if(!btn)return;
+  const bodies=document.getElementById('parsedFields').querySelectorAll('.part-block-body');
+  const anyCollapsed=[...bodies].some(b=>b.classList.contains('collapsed'));
+  const hidden=[...bodies].filter(b=>b.classList.contains('collapsed')).length;
+  btn.textContent=anyCollapsed?'▼ הצג עוד '+hidden+' חלק'+(hidden>1?'ים':''):'▲ כווץ הכל';
 }
 
-// ============================================================
-// תור שליחה אופליין
-// ============================================================
-const QUEUE_KEY = 'sendQueue_9215';
-
-function loadQueue() {
-  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; }
+// ── Offline queue ────────────────────────────────────────────
+const QUEUE_KEY='sendQueue_9215';
+function loadQueue(){try{return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');}catch{return[];}}
+function saveQueue(q){localStorage.setItem(QUEUE_KEY,JSON.stringify(q));}
+function updateQueueBanner(){
+  const q=loadQueue();
+  const banner=document.getElementById('queueBanner');
+  if(q.length>0){banner.style.display='block';banner.textContent='📡 '+q.length+' פריט'+(q.length>1?'ים':'')+' ממתין'+(q.length>1?'ים':'')+' לשליחה – לחץ לשליחה מחדש';}
+  else{banner.style.display='none';}
 }
-function saveQueue(q) {
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+function enqueuePayloads(payloads){const q=loadQueue();payloads.forEach(p=>q.push(p));saveQueue(q);updateQueueBanner();}
+function flushQueue(){
+  const q=loadQueue();if(!q.length)return;
+  const scriptUrl=document.getElementById('scriptUrl').value.trim();
+  if(!scriptUrl){showStatus('error','יש להזין את ה-Apps Script URL בהגדרות.');return;}
+  showStatus('loading','⏳ שולח '+q.length+' פריטים ממתינים...');
+  sendQueue(q,scriptUrl,0,()=>{saveQueue([]);updateQueueBanner();showStatus('success','✅ כל הפריטים הממתינים נשלחו בהצלחה!');});
 }
-function updateQueueBanner() {
-  const q = loadQueue();
-  const banner = document.getElementById('queueBanner');
-  if (q.length > 0) {
-    banner.style.display = 'block';
-    banner.textContent = `📡 ${q.length} פריט${q.length > 1 ? 'ים' : ''} ממתין${q.length > 1 ? 'ים' : ''} לשליחה – לחץ לשליחה מחדש`;
-  } else {
-    banner.style.display = 'none';
-  }
+function sendQueue(queue,scriptUrl,index,onDone){
+  if(index>=queue.length){onDone();return;}
+  const payload=queue[index];
+  const url=scriptUrl+'?data='+encodeURIComponent(JSON.stringify(payload));
+  const img=new Image();
+  const t=setTimeout(()=>sendQueue(queue,scriptUrl,index+1,onDone),4000);
+  img.onload=img.onerror=()=>{clearTimeout(t);sendQueue(queue,scriptUrl,index+1,onDone);};
+  img.src=url;
 }
+window.addEventListener('online',()=>{const q=loadQueue();if(q.length>0)flushQueue();});
 
-function enqueuePayloads(payloads) {
-  const q = loadQueue();
-  payloads.forEach(p => q.push(p));
-  saveQueue(q);
-  updateQueueBanner();
-}
+// ── Submit ───────────────────────────────────────────────────
+let isSubmitting=false;
 
-function flushQueue() {
-  const q = loadQueue();
-  if (!q.length) return;
-  const scriptUrl = document.getElementById('scriptUrl').value.trim();
-  if (!scriptUrl) { showStatus('error', 'יש להזין את ה-Apps Script URL בהגדרות.'); return; }
-  showStatus('loading', `⏳ שולח ${q.length} פריטים ממתינים...`);
-  sendQueue(q, scriptUrl, 0, () => {
-    saveQueue([]);
-    updateQueueBanner();
-    showStatus('success', '✅ כל הפריטים הממתינים נשלחו בהצלחה!');
-  });
-}
+async function submitEntry(){
+  if(isSubmitting)return;
+  const text=document.getElementById('inputText').value.trim();
+  const scriptUrl=document.getElementById('scriptUrl').value.trim();
+  const btn=document.getElementById('submitBtn');
+  if(!text){showStatus('error','יש להזין טקסט לפני השליחה.');return;}
+  if(!scriptUrl){showStatus('error','יש להזין את ה-Apps Script URL בהגדרות.');return;}
 
-function sendQueue(queue, scriptUrl, index, onDone) {
-  if (index >= queue.length) { onDone(); return; }
-  const payload = queue[index];
-  const url = `${scriptUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`;
-  const img = new Image();
-  const t = setTimeout(() => sendQueue(queue, scriptUrl, index + 1, onDone), 4000);
-  img.onload = img.onerror = () => { clearTimeout(t); sendQueue(queue, scriptUrl, index + 1, onDone); };
-  img.src = url;
-}
-
-// בדוק תור קיים בטעינה ועקוב אחר חזרת רשת
-window.addEventListener('online', () => {
-  const q = loadQueue();
-  if (q.length > 0) flushQueue();
-});
-
-// ============================================================
-// שליחה ראשית
-// ============================================================
-let isSubmitting = false;
-
-async function submitEntry() {
-  if (isSubmitting) return; // מניעת דאבל קליק
-
-  const text = document.getElementById('inputText').value.trim();
-  const scriptUrl = document.getElementById('scriptUrl').value.trim();
-  const btn = document.getElementById('submitBtn');
-
-  if (!text) { showStatus('error', 'יש להזין טקסט לפני השליחה.'); return; }
-  if (!scriptUrl) { showStatus('error', 'יש להזין את ה-Apps Script URL בהגדרות.'); return; }
-
-  const rawParts = text.split(/\n\s*---[^\n]*---\s*\n|\n---[^\n]*---\n/).map(p => p.replace(/^---[^\n]*---\n/, '').trim()).filter(Boolean);
-
-  const payloads = rawParts.map(partText => {
-    const parsed = parseText(partText);
-    const sheet  = detectSheet(parsed);
-    return {
-      rawText: partText,
-      parsed,
-      omedValue,
-      targetSheet: sheet ? sheet.name : 'כלים אחרים',
-      timestamp: new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })
-    };
+  const rawParts=text.split(/\n\s*---[^\n]*---\s*\n|\n---[^\n]*---\n/).map(p=>p.replace(/^---[^\n]*---\n/,'').trim()).filter(Boolean);
+  const payloads=rawParts.map(partText=>{
+    const parsed=parseText(partText);
+    const sheet=detectSheet(parsed);
+    return{rawText:partText,parsed,omedValue,targetSheet:sheet?sheet.name:'כלים אחרים',timestamp:new Date().toLocaleString('he-IL',{timeZone:'Asia/Jerusalem'})};
   });
 
-  if (!navigator.onLine) {
+  if(!navigator.onLine){
     enqueuePayloads(payloads);
-    showStatus('queued', `📡 אין קליטה – ${payloads.length} פריט${payloads.length > 1 ? 'ים' : ''} נשמר${payloads.length > 1 ? 'ו' : ''} וישלח${payloads.length > 1 ? 'ו' : ''} אוטומטית כשתחזור`);
-    clearFormAfterSend();
-    return;
+    showStatus('queued','📡 אין קליטה – '+payloads.length+' פריט'+(payloads.length>1?'ים':'')+' נשמר'+(payloads.length>1?'ו':'')+' וישלח'+(payloads.length>1?'ו':'')+' אוטומטית כשתחזור');
+    clearFormAfterSend();return;
   }
 
-  isSubmitting = true;
-  btn.disabled = true;
-  showStatus('loading', `⏳ שולח ${payloads.length > 1 ? payloads.length + ' חלקים' : 'לגיליון'}...`);
+  isSubmitting=true;btn.disabled=true;
+  showStatus('loading','⏳ שולח '+(payloads.length>1?payloads.length+' חלקים':'לגיליון')+'...');
 
-  let failedPayloads = [];
-  let duplicateMessages = [];
-
-  async function sendNext(index) {
-    if (index >= payloads.length) {
-      isSubmitting = false;
-      btn.disabled = false;
-      if (failedPayloads.length > 0) {
-        enqueuePayloads(failedPayloads);
-        showStatus('queued', `⚠ ${payloads.length - failedPayloads.length} נשלח, ${failedPayloads.length} נשמר לשליחה מאוחרת`);
-      } else if (duplicateMessages.length > 0) {
-        showDuplicateStatus(duplicateMessages);
-        if (document.getElementById('openSheetsCheck').checked) {
-          window.open('https://docs.google.com/spreadsheets/d/1NcxH1TTt0R11FuA6t82m3B7BTpXEVvk3Lnqzcx1EYeA/edit?usp=drivesdk', '_blank');
-        }
-      } else {
-        showStatus('success', `✅ ${payloads.length} פריט${payloads.length > 1 ? 'ים' : ''} נשלח${payloads.length > 1 ? 'ו' : ''} בהצלחה!`);
-        if (document.getElementById('openSheetsCheck').checked) {
-          window.open('https://docs.google.com/spreadsheets/d/1NcxH1TTt0R11FuA6t82m3B7BTpXEVvk3Lnqzcx1EYeA/edit?usp=drivesdk', '_blank');
-        }
-      }
-      clearFormAfterSend();
-      return;
-    }
-
-    const payload = payloads[index];
-    const url = `${scriptUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`;
-
-    try {
-      // נסה fetch עם CORS כדי לקבל תשובה לזיהוי כפילויות
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 7000);
-      const resp = await fetch(url, { signal: controller.signal });
-      clearTimeout(timer);
-      try {
-        const data = await resp.json();
-        if (data.result && data.result.action === 'updated') {
-          const r = data.result;
-          const addedQty = parseInt(payload.parsed['כמות']) || 0;
-          duplicateMessages.push({ makat: r.makat, oldQty: r.oldQty, added: addedQty, newQty: r.newQty, sheet: payload.targetSheet });
-        }
-      } catch { /* תשובה לא JSON – בסדר */ }
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        failedPayloads.push(payload);
-      } else {
-        // CORS fallback – שלח עם Image
-        await new Promise(resolve => {
-          const img = new Image();
-          const t = setTimeout(resolve, 5000);
-          img.onload = img.onerror = () => { clearTimeout(t); resolve(); };
-          img.src = url;
+  try{
+    let duplicates=[];
+    for(let i=0;i<payloads.length;i++){
+      const url=scriptUrl+'?data='+encodeURIComponent(JSON.stringify(payloads[i]));
+      try{
+        const resp=await fetch(url);
+        const d=await resp.json();
+        if(d.duplicate) duplicates.push({makat:d.makat,added:d.added,newQty:d.newQty,oldQty:d.oldQty});
+      }catch{
+        await new Promise(resolve=>{
+          const img=new Image();const t=setTimeout(resolve,6000);
+          img.onload=img.onerror=()=>{clearTimeout(t);resolve();};img.src=url;
         });
       }
     }
-
-    await sendNext(index + 1);
+    if(duplicates.length>0){
+      showDuplicateStatus(duplicates);
+    } else {
+      showStatus('success','✅ '+payloads.length+' פריט'+(payloads.length>1?'ים':'')+' נשלח'+(payloads.length>1?'ו':'')+' בהצלחה!');
+    }
+    if(document.getElementById('openSheetsCheck').checked)
+      window.open('https://docs.google.com/spreadsheets/d/1NcxH1TTt0R11FuA6t82m3B7BTpXEVvk3Lnqzcx1EYeA/edit?usp=drivesdk','_blank');
+    clearFormAfterSend();
+  }finally{
+    isSubmitting=false;btn.disabled=false;
   }
-
-  await sendNext(0);
 }
 
-function showDuplicateStatus(messages) {
-  const el = document.getElementById('status');
-  el.className = 'duplicate';
-  el.innerHTML = messages.map(m =>
-    `😊 כבר יש לנו מק״ט ${m.makat}!<br>מוסיף ${m.added} יחידות למלאי הקיים... ${m.oldQty} ➜ <strong>${m.newQty}</strong> ✨`
-  ).join('<br><br>');
-  el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 8000);
+function clearFormAfterSend(){
+  document.getElementById('inputText').value='';
+  document.getElementById('parsedPreview').style.display='none';
+  document.getElementById('partsCountRow').style.display='none';
+  document.getElementById('partsCount').value='1';
+  lastTemplateType=null;omedValue=null;
+  document.getElementById('opt-yes').className='toggle-opt';
+  document.getElementById('opt-no').className='toggle-opt';
 }
 
-function clearFormAfterSend() {
-  document.getElementById('inputText').value = '';
-  document.getElementById('parsedPreview').style.display = 'none';
-  document.getElementById('partsCountRow').style.display = 'none';
-  document.getElementById('partsCount').value = '1';
-  lastTemplateType = null;
-  omedValue = null;
-  document.getElementById('opt-yes').className = 'toggle-opt';
-  document.getElementById('opt-no').className  = 'toggle-opt';
+function showDuplicateStatus(messages){
+  var el=document.getElementById('status');
+  el.className='duplicate';
+  var lines=messages.map(function(m){
+    return '🎉 מק״ט <strong>'+m.makat+'</strong> כבר במלאי! '+
+           '📦 כמות: <strong>'+m.oldQty+'</strong> ➡️ <strong style="font-size:1.1em;color:#79c0ff;">'+m.newQty+'</strong> ✨';
+  });
+  el.innerHTML=lines.join('<br><br>');
+  el.style.display='block';
+  setTimeout(function(){el.style.display='none';},6000);
 }
 
-function showStatus(type, msg) {
-  const el = document.getElementById('status');
-  el.className = type;
-  el.textContent = msg;
-  el.style.display = 'block';
-  if (type === 'success') setTimeout(() => el.style.display = 'none', 4000);
+function showStatus(type,msg){
+  const el=document.getElementById('status');
+  el.className=type;el.textContent=msg;el.style.display='block';
+  if(type==='success')setTimeout(()=>el.style.display='none',4000);
 }
 
-let lastTemplateType = null;
+// ── Templates ────────────────────────────────────────────────
+let lastTemplateType=null;
 
-function fillTemplate(type) {
-  lastTemplateType = type;
-  const templates = {
-    bakash: `צ׳: 
-שם החלק: 
-מק״ט: 
-סוג הכלי: בק"ש
-כמות: 
-הערות: `,
-    malaee: `שם החלק: 
-מק״ט: 
-סוג הכלי: 
-כמות: 
-הערות: `,
-    tankim: `צ׳: 
-שם החלק: 
-מק״ט: 
-סוג הכלי: מרכבה סימן 3
-כמות: 
-הערות: `
+function fillTemplate(type){
+  lastTemplateType=type;
+  const T={
+    bakash:'צ׳: \nשם החלק: \nמק״ט: \nסוג הכלי: בק"ש\nכמות: \nהערות: ',
+    malaee:'שם החלק: \nמק״ט: \nסוג הכלי: \nכמות: \nהערות: ',
+    tankim:'צ׳: \nשם החלק: \nמק״ט: \nסוג הכלי: מרכבה סימן 3\nכמות: \nהערות: '
   };
-  document.getElementById('inputText').value = templates[type].trimEnd();
-  document.getElementById('partsCountRow').style.display = 'flex';
-  document.getElementById('partsCount').value = '1';
-  document.getElementById('partsCountHint').textContent = 'חלק אחד נבחר';
+  document.getElementById('inputText').value=(T[type]||'').trimEnd();
+  document.getElementById('partsCountRow').style.display='flex';
+  document.getElementById('partsCount').value='1';
+  document.getElementById('partsCountHint').textContent='חלק אחד נבחר';
   autoParsePreview();
 }
 
-function applyPartsCount() {
-  const templates = {
-    bakash: `צ׳: 
-שם החלק: 
-מק״ט: 
-סוג הכלי: בק"ש
-כמות: 
-הערות: `,
-    malaee: `שם החלק: 
-מק״ט: 
-סוג הכלי: 
-כמות: 
-הערות: `,
-    tankim: `צ׳: 
-שם החלק: 
-מק״ט: 
-סוג הכלי: מרכבה סימן 3
-כמות: 
-הערות: `
+function applyPartsCount(){
+  const T={
+    bakash:'צ׳: \nשם החלק: \nמק״ט: \nסוג הכלי: בק"ש\nכמות: \nהערות: ',
+    malaee:'שם החלק: \nמק״ט: \nסוג הכלי: \nכמות: \nהערות: ',
+    tankim:'צ׳: \nשם החלק: \nמק״ט: \nסוג הכלי: מרכבה סימן 3\nכמות: \nהערות: '
   };
-
-  if (!lastTemplateType) return;
-  const base = templates[lastTemplateType].trimEnd();
-  if (!base) return;
-
-  const count = parseInt(document.getElementById('partsCount').value) || 1;
-  const textarea = document.getElementById('inputText');
-  const existing = textarea.value.trim();
-
-  // פצל נכון – חלק אחד ללא מפריד, כמה חלקים עם מפריד
+  if(!lastTemplateType)return;
+  const base=T[lastTemplateType].trimEnd();
+  const count=parseInt(document.getElementById('partsCount').value)||1;
+  const textarea=document.getElementById('inputText');
+  const existing=textarea.value.trim();
   let currentParts;
-  if (existing.includes('--- חלק')) {
-    currentParts = existing.split(/\n\n--- חלק \d+ ---\n/).map(p => p.replace(/^--- חלק \d+ ---\n/, '').trim()).filter(Boolean);
-  } else {
-    currentParts = existing ? [existing] : [base];
-  }
-
-  const currentCount = currentParts.length;
-
+  if(existing.includes('--- חלק')){
+    currentParts=existing.split(/\n\n--- חלק \d+ ---\n/).map(p=>p.replace(/^--- חלק \d+ ---\n/,'').trim()).filter(Boolean);
+  }else{currentParts=existing?[existing]:[base];}
   let newParts;
-  if (count > currentCount) {
-    const toAdd = count - currentCount;
-    newParts = [
-      ...currentParts,
-      ...Array.from({ length: toAdd }, () => base)
-    ];
-  } else {
-    newParts = currentParts.slice(0, count);
-  }
-
-  const repeated = newParts.length === 1
-    ? newParts[0]
-    : newParts.map((p, i) => `--- חלק ${i + 1} ---\n${p}`).join('\n\n');
-
-  document.getElementById('partsCountHint').textContent =
-    count === 1 ? 'חלק אחד נבחר' : `${count} חלקים נבחרו`;
-
-  textarea.value = repeated;
+  if(count>currentParts.length){
+    newParts=[...currentParts,...Array.from({length:count-currentParts.length},()=>base)];
+  }else{newParts=currentParts.slice(0,count);}
+  textarea.value=newParts.length===1?newParts[0]:newParts.map((p,i)=>'--- חלק '+(i+1)+' ---\n'+p).join('\n\n');
+  document.getElementById('partsCountHint').textContent=count===1?'חלק אחד נבחר':count+' חלקים נבחרו';
   autoParsePreview();
 }
 
-function clearText() {
-  document.getElementById('inputText').value = '';
-  document.getElementById('parsedPreview').style.display = 'none';
-  document.getElementById('status').style.display = 'none';
-  document.getElementById('partsCountRow').style.display = 'none';
-  document.getElementById('partsCount').value = '1';
-  lastTemplateType = null;
+function clearText(){
+  document.getElementById('inputText').value='';
+  document.getElementById('parsedPreview').style.display='none';
+  document.getElementById('status').style.display='none';
+  document.getElementById('partsCountRow').style.display='none';
+  document.getElementById('partsCount').value='1';
+  lastTemplateType=null;
 }
 
-// ============================================================
-// Claude Agent
-// ============================================================
-let agentOpen = false;
-let agentHistory = [];
+// ── Agent ────────────────────────────────────────────────────
+let agentOpen=false;
+let agentHistory=[];
 
-function toggleAgent() {
-  agentOpen = !agentOpen;
-  const body = document.getElementById('agentBody');
-  const btn  = document.getElementById('agentToggleBtn');
-  body.classList.toggle('open', agentOpen);
-  btn.textContent = agentOpen ? 'סגור ▲' : 'פתח ▼';
-  if (agentOpen) {
-    setTimeout(() => document.getElementById('agentInput').focus(), 100);
-    const msgs = document.getElementById('agentMessages');
-    msgs.scrollTop = msgs.scrollHeight;
+function toggleAgent(){
+  agentOpen=!agentOpen;
+  const body=document.getElementById('agentBody');
+  const btn=document.getElementById('agentToggleBtn');
+  body.classList.toggle('open',agentOpen);
+  btn.textContent=agentOpen?'סגור ▲':'פתח ▼';
+  if(agentOpen){
+    setTimeout(()=>{const inp=document.getElementById('agentInput');if(inp)inp.focus();},100);
+    const msgs=document.getElementById('agentMessages');
+    msgs.scrollTop=msgs.scrollHeight;
   }
 }
 
-function agentAddMessage(role, text) {
-  const container = document.getElementById('agentMessages');
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  div.textContent = text;
+function agentAddMessage(role,text){
+  const container=document.getElementById('agentMessages');
+  const div=document.createElement('div');
+  div.className='msg '+role;
+  div.textContent=text;
   container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
+  container.scrollTop=container.scrollHeight;
   return div;
 }
 
-async function agentSend() {
-  const input = document.getElementById('agentInput');
-  const btn   = document.getElementById('agentSendBtn');
-  const text  = input.value.trim();
-  if (!text) return;
+async function agentSend(){
+  const input=document.getElementById('agentInput');
+  const btn=document.getElementById('agentSendBtn');
+  const text=input.value.trim();
+  if(!text)return;
+  const scriptUrl=document.getElementById('scriptUrl').value.trim();
+  const apiKey=(localStorage.getItem('anthropic_key_9215')||'').replace(/[^\x20-\x7E]/g,'').trim();
+  if(!apiKey){agentAddMessage('assistant',"המפקד, צריך להכניס Anthropic API key בהגדרות.");return;}
+  if(!apiKey.startsWith('sk-')){agentAddMessage('assistant',"המפקד, ה-API key לא נראה תקין. צריך להתחיל ב-sk-ant-...");return;}
+  input.value='';input.focus();btn.disabled=true;
+  agentAddMessage('user',text);
+  const thinking=agentAddMessage('thinking',"⏳ סרג'יו חושב...");
+  agentHistory.push({role:'user',content:text});
 
-  const scriptUrl = document.getElementById('scriptUrl').value.trim();
-  if (!scriptUrl) {
-    agentAddMessage('assistant', 'המפקד, אין לי URL של הגיליון. תכניס אותו בהגדרות ואני אטפל בשאר.');
-    return;
-  }
-
-  input.value = '';
-  btn.disabled = true;
-  agentAddMessage('user', text);
-  const thinking = agentAddMessage('thinking', '⏳ סרג\'יו חושב...');
-
-  agentHistory.push({ role: 'user', content: text });
-
-  try {
-    const SERGIO_QUOTES = [
-      "המפקד, אני לא עריק, אני פשוט איחרתי ב-24 שעות... כפול שבעה ימים.",
-      "יו נואו, איטס אה פאטה מורגנה!",
-      "שום צבא בעולם לא יעצור את סרג'יו קונסטנזה מלהגיע ליעד שלו.",
-      "תשמע דוקטור, אני למדתי רפואה שלוש שנים.",
-      "אדון חסון, תרגיע! הלב שלי לא עומד בזה.",
-      "סרג'יו קונסטנזה לשירותך המפקד.",
-      "כן המפקד.",
-      "אני לא מבין איזה אינטרס יש להם לבוא פה בחום הזה.",
-      "אה נניח... אז בוא נניח שאני העברתי את ההודעה בקשר...",
-      "סיגריה, המפקד?",
-      "תחי מדינת ישראל כל הכבוד לצה\"ל."
-    ];
-    const randomQuote = SERGIO_QUOTES[Math.floor(Math.random() * SERGIO_QUOTES.length)];
-
-    const systemPrompt = `אתה סרג'יו קונסטנזה מהסרט "גבעת חלפון אינה עונה" – אתה אחראי על חלפים בגדוד 9215. אתה קצת עצלן, קצת מוגזם, תמיד יש לך תירוץ, אבל בסוף תמיד עוזר ויודע את העבודה.
-
-חוקים חשובים:
-1. תמיד פתח את התשובה עם ציטוט אייקוני אחד מתוך הביטויים שלך – הביטוי המוצע: "${randomQuote}". השתמש בו רק אם מתאים, אחרת בחר אחר.
-2. ענה בעברית מדוברת, עם הומור וקצרות – כמו סרג'יו.
-3. קרא לשואל "המפקד" לפחות פעם אחת.
-4. אם המשתמש מבקש להזמין/להוסיף חלק, חלץ פרמטרים ותחזיר בסוף בלוק JSON:
-<<<ORDER>>>
-{"שםהחלק":"...","מקט":"...","סוגהכלי":"...","כמות":"..."}
-<<<END>>>
-אם חסר פרמטר קריטי – שאל בחזרה בסגנון סרג'יו.
-5. אם שאלו על מידע מהגיליון – ענה לפי הנתונים שנשלחו.
-6. תשובות קצרות – סרג'יו לא אוהב לעבוד יותר מדי.`;
-
-    // שלח דרך Apps Script כ-proxy
-    const proxyPayload = {
-      action: 'claude',
-      system: systemPrompt,
-      messages: agentHistory
-    };
-
-    const url = `${scriptUrl}?proxy=${encodeURIComponent(JSON.stringify(proxyPayload))}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
-    const resp = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    const data = await resp.json();
-    let reply = data.reply || 'לא הצלחתי לקבל תשובה.';
-
-    thinking.remove();
-
-    // זיהוי בלוק הזמנה
-    const orderMatch = reply.match(/<<<ORDER>>>\s*([\s\S]*?)\s*<<<END>>>/);
-    if (orderMatch) {
-      const cleanReply = reply.replace(/<<<ORDER>>>[\s\S]*?<<<END>>>/, '').trim();
-      agentAddMessage('assistant', cleanReply);
-      try {
-        const orderData = JSON.parse(orderMatch[1].trim());
-        await agentSubmitOrder(orderData);
-      } catch {
-        agentAddMessage('assistant', 'המפקד, ניסיתי לשלוח את ההזמנה אבל משהו השתבש... כנראה פאטה מורגנה.');
-      }
-    } else {
-      agentAddMessage('assistant', reply);
+  try{
+    let sheetContext='';
+    if(scriptUrl){
+      try{
+        const r=await fetch(scriptUrl+'?action=read');
+        const d=await r.json();
+        if(d.rows&&d.rows.length>0)sheetContext='\n\nנתוני הגיליון ('+d.rows.length+' שורות):\n'+d.rows.map(r=>JSON.stringify(r)).join('\n');
+      }catch{sheetContext='\n\n(לא הצלחתי לטעון נתוני גיליון)';}
     }
 
-    agentHistory.push({ role: 'assistant', content: reply });
-    if (agentHistory.length > 20) agentHistory = agentHistory.slice(-20);
+    const QUOTES=["המפקד, אני לא עריק, אני פשוט איחרתי ב-24 שעות... כפול שבעה ימים.","יו נואו, איטס אה פאטה מורגנה!","שום צבא בעולם לא יעצור את סרג'יו קונסטנזה מלהגיע ליעד שלו.","תשמע דוקטור, אני למדתי רפואה שלוש שנים.","אדון חסון, תרגיע! הלב שלי לא עומד בזה.","סרג'יו קונסטנזה לשירותך המפקד.","כן המפקד.","אני לא מבין איזה אינטרס יש להם לבוא פה בחום הזה.","אה נניח... אז בוא נניח שאני העברתי את ההודעה בקשר...","סיגריה, המפקד?","תחי מדינת ישראל כל הכבוד לצה\"ל."];
+    const randomQuote=QUOTES[Math.floor(Math.random()*QUOTES.length)];
 
-  } catch (err) {
+    const ORDER_TAG='<<<ORDER>>>';
+    const UPDATE_TAG='<<<UPDATE>>>';
+    const DELETE_TAG='<<<DELETE>>>';
+    const END_TAG='<<<END>>>';
+
+    const systemPrompt=[
+      "אתה סרג'יו קונסטנזה מהסרט \"גבעת חלפון אינה עונה\" – אחראי על חלפים בגדוד 9215. קצת עצלן, קצת מוגזם, אבל בסוף תמיד עוזר.",
+      '',
+      'חוקים:',
+      '1. פתח עם ציטוט מתאים (מוצע: "'+randomQuote+'").',
+      '2. ענה בעברית מדוברת עם הומור. קרא לשואל "המפקד".',
+      '3. יש לך גישה מלאה לנתוני הגיליון.'+sheetContext,
+      '',
+      'פקודות – החזר בלוק אחד בסוף:',
+      'הזמנת חלק (כולל צ\' אם רלוונטי): '+ORDER_TAG+' {"שםהחלק":"...","מקט":"...","סוגהכלי":"...","כמות":"...","צ\u05f3":"מספר רכב – אופציונלי"} '+END_TAG,
+      'עדכון: '+UPDATE_TAG+' {"מקט":"...","שדה":"...","ערך":"...","גיליון":"..."} '+END_TAG,
+      'מחיקה: '+DELETE_TAG+' {"מקט":"...","גיליון":"..."} '+END_TAG,
+      '',
+      'אם חסר מידע – שאל. תשובות קצרות.'
+    ].join('\n');
+
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:1000,system:systemPrompt,messages:agentHistory.map(m=>({role:m.role,content:m.content}))})
+    });
+    const result=await resp.json();
+    let reply=result.content&&result.content[0]?result.content[0].text:(result.error?result.error.message:'לא הצלחתי לקבל תשובה.');
     thinking.remove();
-    if (err.name === 'AbortError') {
-      agentAddMessage('assistant', 'המפקד, לקח יותר מדי זמן... אה נניח, נניח שזה עבד.');
-    } else {
-      agentAddMessage('assistant', `יו נואו, איטס אה פאטה מורגנה! שגיאה: ${err.message}`);
-    }
-  }
 
-  btn.disabled = false;
+    const orderMatch=reply.match(/<<<ORDER>>>\s*([\s\S]*?)\s*<<<END>>>/);
+    const updateMatch=reply.match(/<<<UPDATE>>>\s*([\s\S]*?)\s*<<<END>>>/);
+    const deleteMatch=reply.match(/<<<DELETE>>>\s*([\s\S]*?)\s*<<<END>>>/);
+    const cleanReply=reply.replace(/<<<ORDER>>>[\s\S]*?<<<END>>>/,'').replace(/<<<UPDATE>>>[\s\S]*?<<<END>>>/,'').replace(/<<<DELETE>>>[\s\S]*?<<<END>>>/,'').trim();
+    if(cleanReply)agentAddMessage('assistant',cleanReply);
+    if(orderMatch){try{await agentSubmitOrder(JSON.parse(orderMatch[1].trim()));}catch(e){agentAddMessage('assistant','המפקד, משהו השתבש בהזמנה: '+e.message);}}
+    if(updateMatch){try{await agentSubmitAction('update',JSON.parse(updateMatch[1].trim()));}catch(e){agentAddMessage('assistant','המפקד, משהו השתבש בעדכון: '+e.message);}}
+    if(deleteMatch){try{await agentSubmitAction('delete',JSON.parse(deleteMatch[1].trim()));}catch(e){agentAddMessage('assistant','המפקד, משהו השתבש במחיקה: '+e.message);}}
+    if(!cleanReply&&!orderMatch&&!updateMatch&&!deleteMatch)agentAddMessage('assistant',reply);
+
+    agentHistory.push({role:'assistant',content:reply});
+    if(agentHistory.length>20)agentHistory=agentHistory.slice(-20);
+  }catch(err){
+    thinking.remove();
+    agentAddMessage('assistant','יו נואו, איטס אה פאטה מורגנה! שגיאה: '+err.message);
+  }
+  btn.disabled=false;input.focus();
+}
+
+async function agentSubmitOrder(data){
+  const scriptUrl=document.getElementById('scriptUrl').value.trim();
+  if(!scriptUrl){agentAddMessage('assistant','המפקד, אין URL לגיליון.');return;}
+  const div=document.createElement('div');
+  div.className='msg assistant';
+  div.innerHTML='<div style="font-size:0.82rem;color:#8b949e;margin-bottom:8px;">📋 אז בוא נניח שאני מאשר:</div><div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;font-size:0.83rem;line-height:1.8;"><div><span style="color:#8b949e;">שם חלק:</span> <strong style="color:#e6edf3;">'+(data['שםהחלק']||'-')+'</strong></div><div><span style="color:#8b949e;">מק"ט:</span> <strong style="color:#e6edf3;">'+(data['מקט']||'-')+'</strong></div><div><span style="color:#8b949e;">סוג כלי:</span> <strong style="color:#e6edf3;">'+(data['סוגהכלי']||'-')+'</strong></div><div><span style="color:#8b949e;">כמות:</span> <strong style="color:#e6edf3;">'+(data['כמות']||'-')+'</strong></div>'+
+    (data['צ׳']||data["צ'"]||data['צ']?'<div><span style="color:#8b949e;">צ׳:</span> <strong style="color:#e6edf3;">'+(data['צ׳']||data["צ'"]||data['צ'])+'</strong></div>':'')+
+    '</div><div style="display:flex;gap:8px;margin-top:10px;"><button onclick="agentConfirmOrder(this,true)" style="flex:1;background:#238636;border:1px solid #2ea043;color:#fff;border-radius:6px;padding:6px;font-size:0.82rem;cursor:pointer;font-weight:600;">✅ אשר ושלח</button><button onclick="agentConfirmOrder(this,false)" style="flex:1;background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:6px;font-size:0.82rem;cursor:pointer;">❌ בטל</button></div>';
+  div._orderData=data;
+  document.getElementById('agentMessages').appendChild(div);
+  document.getElementById('agentMessages').scrollTop=99999;
+}
+
+async function agentConfirmOrder(btn,confirmed){
+  const card=btn.closest('.msg');
+  const data=card._orderData;
+  card.querySelectorAll('button').forEach(b=>b.remove());
+  if(!confirmed){agentAddMessage('assistant','בסדר המפקד, ביטלתי. כן המפקד.');return;}
+  const scriptUrl=document.getElementById('scriptUrl').value.trim();
+  const tsil=data['צ׳']||data["צ'"]||data['צ']||'';
+  const parsed={שםהחלק:data['שםהחלק']||'',מקט:data['מקט']||'',סוגהכלי:data['סוגהכלי']||'',כמות:String(data['כמות']||'1'),"צ׳":tsil};
+  const sheet=detectSheet(parsed);
+  const rawText='שם החלק: '+parsed.שםהחלק+'\nמק"ט: '+parsed.מקט+'\nסוג הכלי: '+parsed.סוגהכלי+'\nכמות: '+parsed.כמות+(tsil?'\nצ׳: '+tsil:'');
+  const payload={rawText,parsed,omedValue:'',targetSheet:sheet?sheet.name:'כלים אחרים',timestamp:new Date().toLocaleString('he-IL',{timeZone:'Asia/Jerusalem'})};
+  const t=agentAddMessage('thinking','⏳ שולח לגיליון...');
+  await new Promise(resolve=>{const img=new Image();const ti=setTimeout(resolve,6000);img.onload=img.onerror=()=>{clearTimeout(ti);resolve();};img.src=scriptUrl+'?data='+encodeURIComponent(JSON.stringify(payload));});
+  t.remove();
+  agentAddMessage('assistant','תחי מדינת ישראל כל הכבוד לצה"ל! ✅ ההזמנה של "'+parsed.שםהחלק+'" נשלחה לגיליון "'+payload.targetSheet+'" המפקד.');
+}
+
+async function agentSubmitAction(type,data){
+  const scriptUrl=document.getElementById('scriptUrl').value.trim();
+  if(!scriptUrl){agentAddMessage('assistant','המפקד, אין URL לגיליון.');return;}
+  const isDelete=type==='delete';
+  const div=document.createElement('div');
+  div.className='msg assistant';
+  const col=isDelete?'#da3633':'#58a6ff';
+  const brd=isDelete?'#f85149':'#79c0ff';
+  let details='<div><span style="color:#8b949e;">מק"ט:</span> <strong style="color:#e6edf3;">'+(data['מקט']||'-')+'</strong></div><div><span style="color:#8b949e;">גיליון:</span> <strong style="color:#e6edf3;">'+(data['גיליון']||'אוטומטי')+'</strong></div>';
+  if(!isDelete)details+='<div><span style="color:#8b949e;">שדה:</span> <strong style="color:#e6edf3;">'+(data['שדה']||'-')+'</strong></div><div><span style="color:#8b949e;">ערך חדש:</span> <strong style="color:#e6edf3;">'+(data['ערך']||'-')+'</strong></div>';
+  div.innerHTML='<div style="font-size:0.82rem;color:'+col+';margin-bottom:8px;font-weight:600;">'+(isDelete?'🗑 מחיקת שורה':'✏️ עדכון שורה')+'</div><div style="background:#0d1117;border:1px solid '+brd+';border-radius:6px;padding:8px 12px;font-size:0.83rem;line-height:1.8;">'+details+'</div><div style="display:flex;gap:8px;margin-top:10px;"><button onclick="agentConfirmAction(this,true,\''+type+'\')" style="flex:1;background:'+(isDelete?'#da3633':'#238636')+';border:1px solid '+(isDelete?'#f85149':'#2ea043')+';color:#fff;border-radius:6px;padding:6px;font-size:0.82rem;cursor:pointer;font-weight:600;">'+(isDelete?'🗑 מחק':'✏️ עדכן')+'</button><button onclick="agentConfirmAction(this,false,\''+type+'\')" style="flex:1;background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:6px;font-size:0.82rem;cursor:pointer;">❌ בטל</button></div>';
+  div._actionData=data;
+  document.getElementById('agentMessages').appendChild(div);
+  document.getElementById('agentMessages').scrollTop=99999;
+}
+
+async function agentConfirmAction(btn,confirmed,type){
+  const card=btn.closest('.msg');
+  const data=card._actionData;
+  card.querySelectorAll('button').forEach(b=>b.remove());
+  if(!confirmed){agentAddMessage('assistant','בסדר המפקד, ביטלתי. כן המפקד.');return;}
+  const scriptUrl=document.getElementById('scriptUrl').value.trim();
+  const url=scriptUrl+'?action='+type+'&params='+encodeURIComponent(JSON.stringify(data));
+  const t=agentAddMessage('thinking','⏳ '+(type==='delete'?'מוחק...':'מעדכן...'));
+  await new Promise(resolve=>{const img=new Image();const ti=setTimeout(resolve,6000);img.onload=img.onerror=()=>{clearTimeout(ti);resolve();};img.src=url;});
+  t.remove();
+  agentAddMessage('assistant',type==='delete'?'✅ שורה עם מק"ט '+(data['מקט']||'')+' נמחקה בהצלחה המפקד.':'✅ עדכנתי את "'+(data['שדה']||'')+'" ל-"'+(data['ערך']||'')+'" בשורה עם מק"ט '+(data['מקט']||'')+' המפקד.');
 }
 </script>
 </body>
