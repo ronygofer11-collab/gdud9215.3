@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>הזמנת חלפים – גדוד 9215</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  header h1 {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: #58a6ff;
+    letter-spacing: 1px;
+  }
+
+  header p {
+    color: #8b949e;
+    margin-top: 6px;
+    font-size: 0.92rem;
+  }
+
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 28px;
+    width: 100%;
+    max-width: 680px;
+    margin-bottom: 20px;
+  }
+
+  .card h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #8b949e;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #30363d;
+    padding-bottom: 10px;
+  }
+
+  label {
+    display: block;
+    font-size: 0.85rem;
+    color: #8b949e;
+    margin-bottom: 6px;
+    margin-top: 14px;
+  }
+
+  input[type="text"], textarea {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #e6edf3;
+    font-size: 0.95rem;
+    padding: 10px 14px;
+    transition: border-color 0.2s;
+    font-family: inherit;
+    direction: rtl;
+  }
+
+  input[type="text"]:focus, textarea:focus {
+    outline: none;
+    border-color: #58a6ff;
+  }
+
+  textarea {
+    min-height: 220px;
+    resize: vertical;
+    line-height: 1.6;
+  }
+
+  .hint {
+    font-size: 0.78rem;
+    color: #6e7681;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  .template-btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: background 0.2s, color 0.2s;
+  }
+  .template-btn:hover { background: #30363d; color: #e6edf3; }
+
+  .template-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
+  .submit-btn {
+    width: 100%;
+    background: #238636;
+    border: 1px solid #2ea043;
+    color: #fff;
+    border-radius: 8px;
+    padding: 13px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+  .submit-btn:hover { background: #2ea043; }
+  .submit-btn:disabled { background: #21262d; border-color: #30363d; color: #6e7681; cursor: not-allowed; }
+
+  #status {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    display: none;
+    text-align: center;
+  }
+  #status.success { background: #0f2b1a; border: 1px solid #2ea043; color: #3fb950; display: block; }
+  #status.error   { background: #2b0f0f; border: 1px solid #da3633; color: #f85149; display: block; }
+  #status.loading { background: #0d2236; border: 1px solid #58a6ff; color: #79c0ff; display: block; }
+  #status.queued  { background: #1a1200; border: 1px solid #9e6a03; color: #e3b341; display: block; }
+
+  #queueBanner {
+    display: none;
+    background: #1a1200;
+    border: 1px solid #9e6a03;
+    color: #e3b341;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 0.85rem;
+    text-align: center;
+    margin-bottom: 12px;
+    cursor: pointer;
+  }
+  #queueBanner:hover { background: #2b1e00; }
+
+  .parsed-preview {
+    margin-top: 18px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 14px;
+    display: none;
+  }
+
+  .parsed-preview h3 {
+    font-size: 0.82rem;
+    color: #6e7681;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .part-block {
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .part-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 12px;
+    background: #161b22;
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: #8b949e;
+    user-select: none;
+  }
+  .part-block-header:hover { background: #21262d; }
+  .part-block-header .part-title { font-weight: 600; color: #e6edf3; }
+  .part-block-header .part-toggle { font-size: 0.72rem; color: #6e7681; }
+  .part-block-body { padding: 8px 12px; display: block; }
+  .part-block-body.collapsed { display: none; }
+
+  .preview-expand-btn {
+    width: 100%;
+    background: none;
+    border: 1px dashed #30363d;
+    color: #6e7681;
+    border-radius: 6px;
+    padding: 6px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    margin-top: 4px;
+    transition: background 0.2s, color 0.2s;
+  }
+  .preview-expand-btn:hover { background: #21262d; color: #e6edf3; }
+
+  .parsed-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px solid #21262d;
+    font-size: 0.88rem;
+  }
+  .parsed-row:last-child { border-bottom: none; }
+  .parsed-key { color: #8b949e; }
+  .parsed-val { color: #e6edf3; font-weight: 500; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .badge-green  { background: #0f2b1a; color: #3fb950; border: 1px solid #2ea043; }
+  .badge-blue   { background: #0d2236; color: #79c0ff; border: 1px solid #58a6ff; }
+  .badge-orange { background: #2b1800; color: #e3b341; border: 1px solid #9e6a03; }
+
+  .sheet-target {
+    margin-top: 12px;
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 8px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-top: 14px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .toggle-label-title {
+    padding: 10px 14px;
+    font-size: 0.88rem;
+    color: #8b949e;
+    border-left: 1px solid #30363d;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .toggle-options {
+    display: flex;
+    flex: 1;
+  }
+
+  .toggle-opt {
+    flex: 1;
+    padding: 10px 0;
+    text-align: center;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: #6e7681;
+    transition: background 0.15s, color 0.15s;
+    border-left: 1px solid #30363d;
+  }
+  .toggle-opt:first-child { border-left: none; }
+
+  .toggle-opt.selected-yes {
+    background: #0f2b1a;
+    color: #3fb950;
+  }
+  .toggle-opt.selected-no {
+    background: #2b0f0f;
+    color: #f85149;
+  }
+
+  .toggle-required-msg {
+    font-size: 0.78rem;
+    color: #da3633;
+    margin-top: 6px;
+    display: none;
+  }
+
+  .sheets-link-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .sheets-link-row input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #58a6ff;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .sheets-link-row span {
+    font-size: 0.88rem;
+    color: #8b949e;
+  }
+  .sheets-link-row.active span { color: #58a6ff; }
+
+  .settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    margin-bottom: 0;
+  }
+  .settings-header h2 { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+  .settings-body { margin-top: 16px; border-top: 1px solid #30363d; padding-top: 16px; }
+  .settings-body.hidden { display: none; }
+  .settings-toggle-btn {
+    background: none;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s, color 0.2s;
+  }
+  .settings-toggle-btn:hover { background: #30363d; color: #e6edf3; }
+  .url-set-indicator {
+    font-size: 0.78rem;
+    color: #3fb950;
+    margin-top: 4px;
+    display: none;
+  }
+
+  .parts-count-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .parts-count-row label {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #8b949e;
+    white-space: nowrap;
+  }
+  .parts-count-row select {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    font-size: 0.9rem;
+    padding: 5px 10px;
+    cursor: pointer;
+    direction: ltr;
+    width: auto;
+  }
+  .parts-count-row select:focus { outline: none; border-color: #58a6ff; }
+  .parts-count-hint {
+    font-size: 0.78rem;
+    color: #6e7681;
+  }
+
+  footer {
+    color: #6e7681;
+    font-size: 0.78rem;
+    margin-top: 24px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔧 הזמנת חלפים</h1>
+  <p>גדוד 9215 · חטיבה 205</p>
+</header>
+
+<!-- הגדרות -->
+<div class="card">
+  <div class="settings-header" onclick="toggleSettings()">
+    <h2>⚙️ הגדרות</h2>
+    <button class="settings-toggle-btn" id="settingsToggleBtn">הסתר ▲</button>
+  </div>
+  <p class="url-set-indicator" id="urlSetIndicator">✔ URL מוגדר</p>
+  <div class="settings-body" id="settingsBody">
+    <label>Google Apps Script URL (Web App URL)</label>
+    <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/AKfy.../exec"
+      value="" oninput="saveUrl()">
+    <p class="hint">הכנס את ה-URL פעם אחת – הוא יישמר אוטומטית בדפדפן ולא תצטרך להדביק שוב.</p>
+  </div>
+</div>
+
+<!-- באנר תור ממתין -->
+<div id="queueBanner" onclick="flushQueue()"></div>
+
+<!-- הזנת טקסט -->
+<div class="card">
+  <h2>📋 הזנת בקשת חלפים</h2>
+
+  <div class="template-row">
+    <button class="template-btn" onclick="fillTemplate('bakash')">תבנית – בק״ש</button>
+    <button class="template-btn" onclick="fillTemplate('malaee')">תבנית – מלאי רכב/נגמ״ש</button>
+    <button class="template-btn" onclick="fillTemplate('tankim')">תבנית – מלאי טנקים</button>
+    <button class="template-btn" onclick="clearText()">🗑 נקה</button>
+  </div>
+
+  <!-- כמות חלקים לתבנית – מוסתר עד בחירת תבנית -->
+  <div class="parts-count-row" id="partsCountRow" style="display:none;">
+    <label>כמות חלקים:</label>
+    <select id="partsCount" onchange="applyPartsCount()">
+      <option value="1" selected>1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+      <option value="7">7</option>
+      <option value="8">8</option>
+      <option value="9">9</option>
+      <option value="10">10</option>
+      <option value="11">11</option>
+      <option value="12">12</option>
+      <option value="13">13</option>
+      <option value="14">14</option>
+      <option value="15">15</option>
+      <option value="16">16</option>
+      <option value="17">17</option>
+      <option value="18">18</option>
+      <option value="19">19</option>
+      <option value="20">20</option>
+    </select>
+    <span class="parts-count-hint" id="partsCountHint">חלק אחד נבחר</span>
+  </div>
+
+  <label>טקסט הבקשה</label>
+  <textarea id="inputText" placeholder="הדבק או הקלד את בקשת החלפים כאן...
+דוגמה:
+חטיבה: 205
+גדוד: 9215
+צ׳: 835027
+סוג הכלי: מרכבה סימן 3
+מק״ט: 041345497
+שם החלק: בסיס לידית
+כמות: 2"
+  oninput="autoParsePreview()"></textarea>
+
+  <p class="hint">
+    פרמטרים מזוהים אוטומטית: <strong>חטיבה, גדוד, צ׳, סוג הכלי, מק״ט, שם החלק, כמות</strong>
+  </p>
+
+  <!-- צ' עומד – בחירה בינארית חובה -->
+  <div class="toggle-row">
+    <span class="toggle-label-title">צ׳ עומד?</span>
+    <div class="toggle-options">
+      <button class="toggle-opt" id="opt-yes" onclick="selectOmed('כן')">✔ כן</button>
+      <button class="toggle-opt" id="opt-no"  onclick="selectOmed('לא')">✖ לא</button>
+    </div>
+  </div>
+  <p class="toggle-required-msg" id="omedError">⚠ יש לבחור האם הצ׳ עומד לפני השליחה</p>
+
+  <!-- תצוגה מקדימה של ניתוח -->
+  <div class="parsed-preview" id="parsedPreview">
+    <h3>תצוגה מקדימה – שדות מזוהים</h3>
+    <div id="parsedFields"></div>
+  </div>
+
+  <div id="status"></div>
+
+  <button class="submit-btn" id="submitBtn" onclick="submitEntry()">
+    ✅ שלח לגיליון
+  </button>
+
+  <!-- צ'קבוקס פתיחת Sheets -->
+  <label class="sheets-link-row" id="sheetsLinkRow">
+    <input type="checkbox" id="openSheetsCheck">
+    <span>📊 פתח את Google Sheets אחרי השליחה</span>
+  </label>
+</div>
+
+<footer>גדוד 9215 · מערכת הזמנת חלפים · v1.0</footer>
+
+<script>
+const FIELD_KEYS = [
+  { key: 'חטיבה',    patterns: ['חטיבה'] },
+  { key: 'גדוד',     patterns: ['גדוד'] },
+  { key: 'צ׳',       patterns: ["צ[׳']\\s*:?\\s*", "צ\\."] },
+  { key: 'סוגהכלי',  patterns: ['סוג הכלי', 'סוג כלי'] },
+  { key: 'מקט',      patterns: ["מק[\"״]ט", 'מקט'] },
+  { key: 'שםהחלק',   patterns: ['שם החלק', 'שם חלק', 'חלק'] },
+  { key: 'כמות',     patterns: ['כמות'] },
+  { key: 'הערות',    patterns: ['הערות', 'הערה'] },
+];
+
+let omedValue = null;
+
+// טען URL שמור מהדפדפן
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('scriptUrl_9215');
+  if (saved) {
+    document.getElementById('scriptUrl').value = saved;
+    collapseSettings();
+  }
+  updateQueueBanner();
+});
+
+function collapseSettings() {
+  document.getElementById('settingsBody').classList.add('hidden');
+  document.getElementById('settingsToggleBtn').textContent = 'ערוך ▼';
+  document.getElementById('urlSetIndicator').style.display = 'block';
+}
+
+function toggleSettings() {
+  const body = document.getElementById('settingsBody');
+  const btn  = document.getElementById('settingsToggleBtn');
+  const indicator = document.getElementById('urlSetIndicator');
+  if (body.classList.contains('hidden')) {
+    body.classList.remove('hidden');
+    btn.textContent = 'הסתר ▲';
+    indicator.style.display = 'none';
+  } else {
+    const val = document.getElementById('scriptUrl').value.trim();
+    if (!val) return; // לא מסתיר אם אין URL
+    collapseSettings();
+  }
+}
+
+function saveUrl() {
+  const val = document.getElementById('scriptUrl').value.trim();
+  if (val) {
+    localStorage.setItem('scriptUrl_9215', val);
+    // הסתר אוטומטית אחרי הקלדה
+    collapseSettings();
+  }
+}
+
+function selectOmed(val) {
+  omedValue = val;
+  document.getElementById('opt-yes').className = 'toggle-opt' + (val === 'כן' ? ' selected-yes' : '');
+  document.getElementById('opt-no').className  = 'toggle-opt' + (val === 'לא' ? ' selected-no'  : '');
+  document.getElementById('omedError').style.display = 'none';
+}
+
+function parseText(text) {
+  const result = {};
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    for (const field of FIELD_KEYS) {
+      if (result[field.key]) continue;
+      for (const pat of field.patterns) {
+        const re = new RegExp(`^${pat}\\s*:?\\s*(.+)`, 'i');
+        const m = trimmed.match(re);
+        if (m) {
+          let val = m[1].trim();
+          // כמות – רק ספרות
+          if (field.key === 'כמות') {
+            const digits = val.replace(/\D/g, '');
+            val = digits || null;
+          }
+          if (val) result[field.key] = val;
+          break;
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function detectSheet(parsed) {
+  const tool = (parsed['סוגהכלי'] || '').trim();
+  // בק"ש – זיהוי מדויק יותר
+  if (/בק[״"']?ש/.test(tool) || tool === 'בקש') {
+    return { name: 'בק"ש', badge: 'badge-orange', label: '📄 יכנס לגיליון: בק״ש' };
+  }
+  if (/סימן\s*3/.test(tool) || /מרכבה.*3/.test(tool)) {
+    return { name: 'סימן 3', badge: 'badge-blue', label: '🔵 יכנס לגיליון: סימן 3' };
+  }
+  if (tool) {
+    return { name: 'כלים אחרים', badge: 'badge-green', label: '🟢 יכנס לגיליון: כלים אחרים' };
+  }
+  return null;
+}
+
+function autoParsePreview() {
+  const text = document.getElementById('inputText').value;
+  const preview = document.getElementById('parsedPreview');
+  const fieldsDiv = document.getElementById('parsedFields');
+
+  if (!text.trim()) { preview.style.display = 'none'; return; }
+
+  // פצל לחלקים
+  const rawParts = text.split(/\n---[^\n]*---\n/).map(p => p.replace(/^---[^\n]*---\n/, '').trim()).filter(Boolean);
+  if (!rawParts.length) { preview.style.display = 'none'; return; }
+
+  const labels = {
+    'חטיבה': 'חטיבה', 'גדוד': 'גדוד', "צ׳": "צ׳",
+    'סוגהכלי': 'סוג הכלי', 'מקט': 'מק״ט',
+    'שםהחלק': 'שם החלק', 'כמות': 'כמות', 'הערות': 'הערות'
+  };
+
+  const ALWAYS_SHOW = 2; // כמה חלקים תמיד פתוחים
+
+  let html = '';
+  rawParts.forEach((partText, i) => {
+    const parsed = parseText(partText);
+    const sheet  = detectSheet(parsed);
+    const partNum = rawParts.length > 1 ? `חלק ${i + 1}` : 'פרטים';
+    const sheetBadge = sheet
+      ? `<span class="badge ${sheet.badge}" style="font-size:0.7rem;padding:1px 7px;">${sheet.name}</span>`
+      : '';
+    const isCollapsed = i >= ALWAYS_SHOW;
+    const bodyClass = isCollapsed ? 'part-block-body collapsed' : 'part-block-body';
+    const toggleText = isCollapsed ? '▼ הצג' : '▲ הסתר';
+
+    const rows = Object.entries(parsed).map(([k, v]) =>
+      `<div class="parsed-row"><span class="parsed-key">${labels[k] || k}</span><span class="parsed-val">${v}</span></div>`
+    ).join('');
+
+    html += `
+      <div class="part-block">
+        <div class="part-block-header" onclick="togglePartBlock(this)">
+          <span class="part-title">${partNum} ${sheetBadge}</span>
+          <span class="part-toggle">${toggleText}</span>
+        </div>
+        <div class="${bodyClass}">
+          ${rows || '<div style="color:#6e7681;font-size:0.82rem;">אין שדות מזוהים</div>'}
+          ${sheet ? `<div class="sheet-target" style="margin-top:8px;padding:6px;background:#161b22;border:1px solid #30363d;border-radius:6px;font-size:0.82rem;font-weight:600;color:#e6edf3;">${sheetBadge} ${sheet.label}</div>` : ''}
+        </div>
+      </div>`;
+  });
+
+  // כפתור הרחב/כווץ הכל אם יש יותר מ-ALWAYS_SHOW
+  if (rawParts.length > ALWAYS_SHOW) {
+    const hidden = rawParts.length - ALWAYS_SHOW;
+    html += `<button class="preview-expand-btn" id="expandAllBtn" onclick="toggleAllParts(this)">▼ הצג עוד ${hidden} חלק${hidden > 1 ? 'ים' : ''}</button>`;
+  }
+
+  fieldsDiv.innerHTML = html;
+  preview.style.display = 'block';
+}
+
+function togglePartBlock(header) {
+  const body = header.nextElementSibling;
+  const toggle = header.querySelector('.part-toggle');
+  const collapsed = body.classList.toggle('collapsed');
+  toggle.textContent = collapsed ? '▼ הצג' : '▲ הסתר';
+  updateExpandBtn();
+}
+
+function toggleAllParts(btn) {
+  const preview = document.getElementById('parsedFields');
+  const bodies = preview.querySelectorAll('.part-block-body');
+  const anyCollapsed = [...bodies].some(b => b.classList.contains('collapsed'));
+  bodies.forEach(b => {
+    b.classList.toggle('collapsed', !anyCollapsed);
+    const toggle = b.previousElementSibling.querySelector('.part-toggle');
+    if (toggle) toggle.textContent = anyCollapsed ? '▲ הסתר' : '▼ הצג';
+  });
+  updateExpandBtn();
+}
+
+function updateExpandBtn() {
+  const btn = document.getElementById('expandAllBtn');
+  if (!btn) return;
+  const preview = document.getElementById('parsedFields');
+  const bodies = preview.querySelectorAll('.part-block-body');
+  const anyCollapsed = [...bodies].some(b => b.classList.contains('collapsed'));
+  const hidden = [...bodies].filter(b => b.classList.contains('collapsed')).length;
+  btn.textContent = anyCollapsed
+    ? `▼ הצג עוד ${hidden} חלק${hidden > 1 ? 'ים' : ''}`
+    : '▲ כווץ הכל';
+}
+
+// ============================================================
+// תור שליחה אופליין
+// ============================================================
+const QUEUE_KEY = 'sendQueue_9215';
+
+function loadQueue() {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; }
+}
+function saveQueue(q) {
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+}
+function updateQueueBanner() {
+  const q = loadQueue();
+  const banner = document.getElementById('queueBanner');
+  if (q.length > 0) {
+    banner.style.display = 'block';
+    banner.textContent = `📡 ${q.length} פריט${q.length > 1 ? 'ים' : ''} ממתין${q.length > 1 ? 'ים' : ''} לשליחה – לחץ לשליחה מחדש`;
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function enqueuePayloads(payloads) {
+  const q = loadQueue();
+  payloads.forEach(p => q.push(p));
+  saveQueue(q);
+  updateQueueBanner();
+}
+
+function flushQueue() {
+  const q = loadQueue();
+  if (!q.length) return;
+  const scriptUrl = document.getElementById('scriptUrl').value.trim();
+  if (!scriptUrl) { showStatus('error', 'יש להזין את ה-Apps Script URL בהגדרות.'); return; }
+  showStatus('loading', `⏳ שולח ${q.length} פריטים ממתינים...`);
+  sendQueue(q, scriptUrl, 0, () => {
+    saveQueue([]);
+    updateQueueBanner();
+    showStatus('success', '✅ כל הפריטים הממתינים נשלחו בהצלחה!');
+  });
+}
+
+function sendQueue(queue, scriptUrl, index, onDone) {
+  if (index >= queue.length) { onDone(); return; }
+  const payload = queue[index];
+  const url = `${scriptUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`;
+  const img = new Image();
+  const t = setTimeout(() => sendQueue(queue, scriptUrl, index + 1, onDone), 4000);
+  img.onload = img.onerror = () => { clearTimeout(t); sendQueue(queue, scriptUrl, index + 1, onDone); };
+  img.src = url;
+}
+
+// בדוק תור קיים בטעינה ועקוב אחר חזרת רשת
+window.addEventListener('online', () => {
+  const q = loadQueue();
+  if (q.length > 0) flushQueue();
+});
+
+// ============================================================
+// שליחה ראשית
+// ============================================================
+async function submitEntry() {
+  const text = document.getElementById('inputText').value.trim();
+  const scriptUrl = document.getElementById('scriptUrl').value.trim();
+  const btn = document.getElementById('submitBtn');
+
+  if (!text) { showStatus('error', 'יש להזין טקסט לפני השליחה.'); return; }
+  if (!scriptUrl) { showStatus('error', 'יש להזין את ה-Apps Script URL בהגדרות.'); return; }
+
+  // פצל לחלקים אם יש מפריד
+  const rawParts = text.split(/\n\s*---[^\n]*---\s*\n|\n---[^\n]*---\n/).map(p => p.replace(/^---[^\n]*---\n/, '').trim()).filter(Boolean);
+
+  // בנה payloads
+  const payloads = rawParts.map(partText => {
+    const parsed = parseText(partText);
+    const sheet  = detectSheet(parsed);
+    return {
+      rawText: partText,
+      parsed,
+      omedValue,
+      targetSheet: sheet ? sheet.name : 'כלים אחרים',
+      timestamp: new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })
+    };
+  });
+
+  // אם אין רשת – שמור לתור
+  if (!navigator.onLine) {
+    enqueuePayloads(payloads);
+    showStatus('queued', `📡 אין קליטה – ${payloads.length} פריט${payloads.length > 1 ? 'ים' : ''} נשמר${payloads.length > 1 ? 'ו' : ''} וישלח${payloads.length > 1 ? 'ו' : ''} אוטומטית כשתחזור`);
+    clearFormAfterSend();
+    return;
+  }
+
+  btn.disabled = true;
+  showStatus('loading', `⏳ שולח ${payloads.length > 1 ? payloads.length + ' חלקים' : 'לגיליון'}...`);
+
+  let failedPayloads = [];
+
+  function sendNext(index) {
+    if (index >= payloads.length) {
+      btn.disabled = false;
+      if (failedPayloads.length > 0) {
+        enqueuePayloads(failedPayloads);
+        showStatus('queued', `⚠ ${payloads.length - failedPayloads.length} נשלח, ${failedPayloads.length} נשמר לשליחה מאוחרת`);
+      } else {
+        showStatus('success', `✅ ${payloads.length} פריט${payloads.length > 1 ? 'ים' : ''} נשלח${payloads.length > 1 ? 'ו' : ''} בהצלחה!`);
+        if (document.getElementById('openSheetsCheck').checked) {
+          window.open('https://docs.google.com/spreadsheets/d/1NcxH1TTt0R11FuA6t82m3B7BTpXEVvk3Lnqzcx1EYeA/edit?usp=drivesdk', '_blank');
+        }
+      }
+      clearFormAfterSend();
+      return;
+    }
+
+    const payload = payloads[index];
+    const url = `${scriptUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`;
+    const img = new Image();
+    let done = false;
+
+    const timeout = setTimeout(() => {
+      if (done) return;
+      done = true;
+      // timeout = כנראה אין קליטה, שמור לתור
+      failedPayloads.push(payload);
+      sendNext(index + 1);
+    }, 6000);
+
+    img.onload = img.onerror = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      sendNext(index + 1);
+    };
+
+    img.src = url;
+  }
+
+  sendNext(0);
+}
+
+function clearFormAfterSend() {
+  document.getElementById('inputText').value = '';
+  document.getElementById('parsedPreview').style.display = 'none';
+  document.getElementById('partsCountRow').style.display = 'none';
+  document.getElementById('partsCount').value = '1';
+  lastTemplateType = null;
+  omedValue = null;
+  document.getElementById('opt-yes').className = 'toggle-opt';
+  document.getElementById('opt-no').className  = 'toggle-opt';
+}
+
+function showStatus(type, msg) {
+  const el = document.getElementById('status');
+  el.className = type;
+  el.textContent = msg;
+  el.style.display = 'block';
+  if (type === 'success') setTimeout(() => el.style.display = 'none', 4000);
+}
+
+let lastTemplateType = null;
+
+function fillTemplate(type) {
+  lastTemplateType = type;
+  // הצג את סלקטור הכמות ואפס ל-1
+  document.getElementById('partsCountRow').style.display = 'flex';
+  document.getElementById('partsCount').value = '1';
+  document.getElementById('partsCountHint').textContent = 'חלק אחד נבחר';
+  applyPartsCount();
+}
+
+function applyPartsCount() {
+  const templates = {
+    bakash: `צ׳: 
+סוג הכלי: בק"ש
+מק״ט: 
+שם החלק: 
+כמות: 
+הערות: `,
+    malaee: `שם החלק: 
+מק״ט: 
+סוג הכלי: 
+כמות: 
+הערות: `,
+    tankim: `צ׳: 
+סוג הכלי: מרכבה סימן 3
+מק״ט: 
+שם החלק: 
+כמות: 
+הערות: `
+  };
+
+  if (!lastTemplateType) return;
+  const base = templates[lastTemplateType].trimEnd();
+  if (!base) return;
+
+  const count = parseInt(document.getElementById('partsCount').value) || 1;
+
+  // פצל את הטקסט הקיים לחלקים
+  const textarea = document.getElementById('inputText');
+  const existing = textarea.value.trim();
+  const currentParts = existing
+    ? existing.split(/\n\s*---[^\n]*---\s*\n|\n\n---[^\n]*---\n/).map(p => p.replace(/^---[^\n]*---\n/, '').trim()).filter(Boolean)
+    : [];
+
+  const currentCount = currentParts.length || 1;
+
+  let newParts;
+  if (count > currentCount) {
+    // הוסף חלקים חדשים (ריקים) בסוף
+    const toAdd = count - currentCount;
+    newParts = [
+      ...currentParts,
+      ...Array.from({ length: toAdd }, () => base)
+    ];
+  } else {
+    // קצר – השאר רק את count הראשונים
+    newParts = currentParts.slice(0, count);
+  }
+
+  const repeated = newParts.length === 1
+    ? newParts[0]
+    : newParts.map((p, i) => `--- חלק ${i + 1} ---\n${p}`).join('\n\n');
+
+  document.getElementById('partsCountHint').textContent =
+    count === 1 ? 'חלק אחד נבחר' : `${count} חלקים נבחרו`;
+
+  textarea.value = repeated;
+  autoParsePreview();
+}
+
+function clearText() {
+  document.getElementById('inputText').value = '';
+  document.getElementById('parsedPreview').style.display = 'none';
+  document.getElementById('status').style.display = 'none';
+  document.getElementById('partsCountRow').style.display = 'none';
+  document.getElementById('partsCount').value = '1';
+  lastTemplateType = null;
+}
+</script>
+</body>
+</html>
