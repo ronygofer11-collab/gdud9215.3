@@ -1211,61 +1211,91 @@ async function agentSend() {
   const text  = input.value.trim();
   if (!text) return;
 
+  const scriptUrl = document.getElementById('scriptUrl').value.trim();
+  if (!scriptUrl) {
+    agentAddMessage('assistant', 'המפקד, אין לי URL של הגיליון. תכניס אותו בהגדרות ואני אטפל בשאר.');
+    return;
+  }
+
   input.value = '';
   btn.disabled = true;
   agentAddMessage('user', text);
-
-  const thinking = agentAddMessage('thinking', '⏳ חושב...');
-
-  // קרא נתוני גיליון מה-Apps Script (אם יש URL)
-  const scriptUrl = document.getElementById('scriptUrl').value.trim();
-  let sheetContext = '';
-  if (scriptUrl) {
-    try {
-      const readUrl = `${scriptUrl}?action=read`;
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 8000);
-      const resp = await fetch(readUrl, { signal: controller.signal });
-      const data = await resp.json();
-      if (data.rows) {
-        sheetContext = `\n\nנתוני הגיליון הנוכחי (${data.rows.length} שורות):\n` +
-          data.rows.map(r => JSON.stringify(r)).join('\n');
-      }
-    } catch { sheetContext = '\n\n(לא הצלחתי לטעון את נתוני הגיליון)'; }
-  }
+  const thinking = agentAddMessage('thinking', '⏳ סרג\'יו חושב...');
 
   agentHistory.push({ role: 'user', content: text });
 
   try {
-    const systemPrompt = `אתה סרג'יו, סרג'יו של גדוד 9215. אתה מבוסס על הדמות של סרג'יו קונסטנזה מהסרט "גבעת חלפון אינה עונה" – קצת עצלן, קצת מוגזם, אבל בסוף תמיד עוזר ויודע את העבודה.
-ענה בעברית מדוברת, עם קצת הומור וקצרות. יש לך גישה לנתוני הגיליון הבאים:${sheetContext}
+    const SERGIO_QUOTES = [
+      "המפקד, אני לא עריק, אני פשוט איחרתי ב-24 שעות... כפול שבעה ימים.",
+      "יו נואו, איטס אה פאטה מורגנה!",
+      "שום צבא בעולם לא יעצור את סרג'יו קונסטנזה מלהגיע ליעד שלו.",
+      "תשמע דוקטור, אני למדתי רפואה שלוש שנים.",
+      "אדון חסון, תרגיע! הלב שלי לא עומד בזה.",
+      "סרג'יו קונסטנזה לשירותך המפקד.",
+      "כן המפקד.",
+      "אני לא מבין איזה אינטרס יש להם לבוא פה בחום הזה.",
+      "אה נניח... אז בוא נניח שאני העברתי את ההודעה בקשר...",
+      "סיגריה, המפקד?",
+      "תחי מדינת ישראל כל הכבוד לצה\"ל."
+    ];
+    const randomQuote = SERGIO_QUOTES[Math.floor(Math.random() * SERGIO_QUOTES.length)];
 
-אם שאלו מתי הוזמן חלק – חפש לפי מק"ט או שם חלק. אם הכמות ירדה – זה אומר שמישהו לקח מהמלאי. תן תשובה ממוקדת ולא ארוכה מדי.`;
+    const systemPrompt = `אתה סרג'יו קונסטנזה מהסרט "גבעת חלפון אינה עונה" – אתה אחראי על חלפים בגדוד 9215. אתה קצת עצלן, קצת מוגזם, תמיד יש לך תירוץ, אבל בסוף תמיד עוזר ויודע את העבודה.
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: agentHistory
-      })
-    });
+חוקים חשובים:
+1. תמיד פתח את התשובה עם ציטוט אייקוני אחד מתוך הביטויים שלך – הביטוי המוצע: "${randomQuote}". השתמש בו רק אם מתאים, אחרת בחר אחר.
+2. ענה בעברית מדוברת, עם הומור וקצרות – כמו סרג'יו.
+3. קרא לשואל "המפקד" לפחות פעם אחת.
+4. אם המשתמש מבקש להזמין/להוסיף חלק, חלץ פרמטרים ותחזיר בסוף בלוק JSON:
+<<<ORDER>>>
+{"שםהחלק":"...","מקט":"...","סוגהכלי":"...","כמות":"..."}
+<<<END>>>
+אם חסר פרמטר קריטי – שאל בחזרה בסגנון סרג'יו.
+5. אם שאלו על מידע מהגיליון – ענה לפי הנתונים שנשלחו.
+6. תשובות קצרות – סרג'יו לא אוהב לעבוד יותר מדי.`;
 
-    const result = await response.json();
-    const reply = result.content?.[0]?.text || 'לא הצלחתי לקבל תשובה.';
+    // שלח דרך Apps Script כ-proxy
+    const proxyPayload = {
+      action: 'claude',
+      system: systemPrompt,
+      messages: agentHistory
+    };
+
+    const url = `${scriptUrl}?proxy=${encodeURIComponent(JSON.stringify(proxyPayload))}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    const data = await resp.json();
+    let reply = data.reply || 'לא הצלחתי לקבל תשובה.';
 
     thinking.remove();
-    agentAddMessage('assistant', reply);
-    agentHistory.push({ role: 'assistant', content: reply });
 
-    // שמור רק 20 הודעות אחרונות
+    // זיהוי בלוק הזמנה
+    const orderMatch = reply.match(/<<<ORDER>>>\s*([\s\S]*?)\s*<<<END>>>/);
+    if (orderMatch) {
+      const cleanReply = reply.replace(/<<<ORDER>>>[\s\S]*?<<<END>>>/, '').trim();
+      agentAddMessage('assistant', cleanReply);
+      try {
+        const orderData = JSON.parse(orderMatch[1].trim());
+        await agentSubmitOrder(orderData);
+      } catch {
+        agentAddMessage('assistant', 'המפקד, ניסיתי לשלוח את ההזמנה אבל משהו השתבש... כנראה פאטה מורגנה.');
+      }
+    } else {
+      agentAddMessage('assistant', reply);
+    }
+
+    agentHistory.push({ role: 'assistant', content: reply });
     if (agentHistory.length > 20) agentHistory = agentHistory.slice(-20);
 
   } catch (err) {
     thinking.remove();
-    agentAddMessage('assistant', `שגיאה: ${err.message}`);
+    if (err.name === 'AbortError') {
+      agentAddMessage('assistant', 'המפקד, לקח יותר מדי זמן... אה נניח, נניח שזה עבד.');
+    } else {
+      agentAddMessage('assistant', `יו נואו, איטס אה פאטה מורגנה! שגיאה: ${err.message}`);
+    }
   }
 
   btn.disabled = false;
