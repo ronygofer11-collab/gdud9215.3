@@ -669,24 +669,42 @@ function cleanLine(line){
 
 function parseText(text){
   const result={};
+  const tsilList=[]; // כל ערכי הצ' שנמצאו
   for(let line of text.split('\n')){
     line=cleanLine(line);
     const trimmed=line.trim();
     if(!trimmed||trimmed.startsWith('---'))continue;
     const colonIdx=trimmed.indexOf(':');
     if(colonIdx<1)continue;
-    // המפתח הוא כל מה שלפני הנקודותיים הראשונות, הערך כל מה שאחריהן
     let rawKey=cleanLine(trimmed.slice(0,colonIdx)).trim();
-    let val=trimmed.slice(colonIdx+1).trim();
-    // הסר * גם מהערך
-    val=val.replace(/^\*+/,'').replace(/\*+$/,'').trim();
+    let val=trimmed.slice(colonIdx+1).replace(/^\*+/,'').replace(/\*+$/,'').trim();
     if(!val)continue;
     const field=fuzzyMatchField(rawKey);
-    if(!field||result[field])continue;
+    if(!field)continue;
+    // צ' – אסוף את כולם
+    if(field==="צ׳"){
+      tsilList.push(val);
+      continue;
+    }
+    if(result[field])continue;
     if(field==='כמות')val=val.replace(/\D/g,'')||null;
     if(val)result[field]=val;
   }
+  // שמור את כל ערכי הצ' כמחרוזת מופרדת בפסיקים
+  if(tsilList.length>0)result["צ׳"]=tsilList.join(', ');
   return result;
+}
+
+// פצל טקסט עם כמה צ' לכמה payloads נפרדים
+function parseTextMulti(text){
+  const base=parseText(text);
+  if(!base["צ׳"]||!base["צ׳"].includes(','))return[base];
+  // יש כמה צ' – צור payload לכל אחד
+  return base["צ׳"].split(',').map(function(tsil){
+    const copy=Object.assign({},base);
+    copy["צ׳"]=tsil.trim();
+    return copy;
+  });
 }
 
 function detectSheet(parsed){
@@ -836,11 +854,14 @@ async function submitEntry(){
   if(!scriptUrl){showStatus('error','יש להזין את ה-Apps Script URL בהגדרות.');return;}
 
   var rawParts=text.split(/\n\s*---[^\n]*---\s*\n|\n---[^\n]*---\n/).map(function(p){return p.replace(/^---[^\n]*---\n/,'').trim();}).filter(Boolean);
-  var payloads=rawParts.map(function(partText){
-    var parsed=parseText(partText);
-    var sheet=detectSheet(parsed);
-    var target=lastTemplateType==='bakash'?'בק"ש':(sheet?sheet.name:'כלים אחרים');
-    return{rawText:partText,parsed:parsed,omedValue:omedValue,targetSheet:target,timestamp:new Date().toLocaleString('he-IL',{timeZone:'Asia/Jerusalem'})};
+  var payloads=[];
+  rawParts.forEach(function(partText){
+    var multiParsed=parseTextMulti(partText);
+    multiParsed.forEach(function(parsed){
+      var sheet=detectSheet(parsed);
+      var target=lastTemplateType==='bakash'?'בק"ש':(sheet?sheet.name:'כלים אחרים');
+      payloads.push({rawText:partText,parsed:parsed,omedValue:omedValue,targetSheet:target,timestamp:new Date().toLocaleString('he-IL',{timeZone:'Asia/Jerusalem'})});
+    });
   });
 
   if(!navigator.onLine){
@@ -857,7 +878,7 @@ async function submitEntry(){
     for(var i=0;i<payloads.length;i++){
       var url=scriptUrl+'?data='+encodeURIComponent(JSON.stringify(payloads[i]));
       try{
-        var cbUrl=url+'&callback=__cb__';
+        var cbUrl=url;
         var d=await jsonpCall(cbUrl);
         if(d.duplicate)duplicates.push({makat:d.makat,added:d.added,newQty:d.newQty,oldQty:d.oldQty});
       }catch(e){
@@ -986,24 +1007,11 @@ var SERGIO_QUOTES=[
 ];
 
 
-function jsonpCall(url){
-  return new Promise(function(resolve,reject){
-    var cbName='__jsonpCb_'+Date.now();
-    var script=document.createElement('script');
-    var timeout=setTimeout(function(){
-      delete window[cbName];
-      document.head.removeChild(script);
-      reject(new Error('JSONP timeout'));
-    },8000);
-    window[cbName]=function(data){
-      clearTimeout(timeout);
-      delete window[cbName];
-      document.head.removeChild(script);
-      resolve(data);
-    };
-    script.src=url.replace('__cb__',cbName);
-    document.head.appendChild(script);
-  });
+async function jsonpCall(url){
+  // Apps Script redirects – follow redirects with fetch
+  var cleanUrl=url.replace('&callback=__cb__','').replace('?callback=__cb__','').replace('callback=__cb__&','').replace('callback=__cb__','');
+  var resp=await fetch(cleanUrl,{redirect:'follow'});
+  return await resp.json();
 }
 
 async function agentSend(){
@@ -1025,7 +1033,7 @@ async function agentSend(){
     var sheetContext='';
     if(scriptUrl){
       try{
-        var d=await jsonpCall(scriptUrl+'?action=read&callback=__cb__');
+        var d=await jsonpCall(scriptUrl+'?action=read');
         if(d.rows&&d.rows.length>0)sheetContext='\n\nנתוני גיליון ('+d.rows.length+' שורות):\n'+d.rows.map(function(r){return JSON.stringify(r);}).join('\n');
       }catch(e){sheetContext='\n\n(לא הצלחתי לטעון נתוני גיליון)';}
     }
@@ -1125,11 +1133,16 @@ async function agentConfirmOrder(btn,confirmed){
   var isBakash=/בק/.test(d.sogKli);
   var sheet=detectSheet(parsed);
   var target=isBakash?'בק"ש':(sheet?sheet.name:'כלים אחרים');
-  var payload={rawText:'',parsed:parsed,omedValue:'',targetSheet:target,timestamp:new Date().toLocaleString('he-IL',{timeZone:'Asia/Jerusalem'})};
   var thinkingMsg=agentAddMessage('thinking','⧗ שולח לגיליון...');
-  await new Promise(function(resolve){var img=new Image();var t=setTimeout(resolve,6000);img.onload=img.onerror=function(){clearTimeout(t);resolve();};img.src=scriptUrl+'?data='+encodeURIComponent(JSON.stringify(payload));});
+  var tsilValues=d.tsil?d.tsil.split(',').map(function(x){return x.trim();}).filter(Boolean):[''];
+  for(var ti=0;ti<tsilValues.length;ti++){
+    var pc=Object.assign({},parsed);
+    if(tsilValues[ti])pc['צ׳']=tsilValues[ti];
+    var payload={rawText:'',parsed:pc,omedValue:'',targetSheet:target,timestamp:new Date().toLocaleString('he-IL',{timeZone:'Asia/Jerusalem'})};
+    await new Promise(function(resolve){var img=new Image();var t2=setTimeout(resolve,6000);img.onload=img.onerror=function(){clearTimeout(t2);resolve();};img.src=scriptUrl+'?data='+encodeURIComponent(JSON.stringify(payload));});
+  }
   thinkingMsg.remove();
-  agentAddMessage('assistant','✅ ההזמנה נשלחה לגיליון "'+target+'" המפקד.');
+  agentAddMessage('assistant','✅ '+tsilValues.length+' הזמנה'+(tsilValues.length>1?'ות':'')+' נשלחו לגיליון "'+target+'" המפקד.');
 }
 
 function agentSubmitAction(type,data){
@@ -1160,7 +1173,7 @@ async function agentConfirmAction(btn,confirmed,type){
   card.querySelectorAll('button').forEach(function(b){b.remove();});
   if(!confirmed){agentAddMessage('assistant','בסדר המפקד, ביטלתי.');return;}
   var scriptUrl=document.getElementById('scriptUrl').value.trim();
-  var url=scriptUrl+'?action='+type+'&params='+encodeURIComponent(JSON.stringify(data))+'&callback=__cb__';
+  var url=scriptUrl+'?action='+type+'&params='+encodeURIComponent(JSON.stringify(data));
   var thinkingMsg=agentAddMessage('thinking','⏳ '+(type==='delete'?'מוחק':'מעדכן')+'...');
   try{
     var result=await jsonpCall(url);
