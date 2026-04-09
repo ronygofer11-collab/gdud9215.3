@@ -1135,11 +1135,21 @@ async function agentConfirmOrder(btn,confirmed){
   var target=isBakash?'בק"ש':(sheet?sheet.name:'כלים אחרים');
   var thinkingMsg=agentAddMessage('thinking','⧗ שולח לגיליון...');
   var tsilValues=d.tsil?d.tsil.split(',').map(function(x){return x.trim();}).filter(Boolean):[''];
+
+  function sendOne(payload){
+    return new Promise(function(resolve){
+      var img=new Image();
+      var t=setTimeout(resolve,6000);
+      img.onload=img.onerror=function(){clearTimeout(t);resolve();};
+      img.src=scriptUrl+'?data='+encodeURIComponent(JSON.stringify(payload));
+    });
+  }
+
   for(var ti=0;ti<tsilValues.length;ti++){
     var pc=Object.assign({},parsed);
     if(tsilValues[ti])pc['צ׳']=tsilValues[ti];
     var payload={rawText:'',parsed:pc,omedValue:'',targetSheet:target,timestamp:new Date().toLocaleString('he-IL',{timeZone:'Asia/Jerusalem'})};
-    await new Promise(function(resolve){var img=new Image();var t2=setTimeout(resolve,6000);img.onload=img.onerror=function(){clearTimeout(t2);resolve();};img.src=scriptUrl+'?data='+encodeURIComponent(JSON.stringify(payload));});
+    await sendOne(payload);
   }
   thinkingMsg.remove();
   agentAddMessage('assistant','✅ '+tsilValues.length+' הזמנה'+(tsilValues.length>1?'ות':'')+' נשלחו לגיליון "'+target+'" המפקד.');
